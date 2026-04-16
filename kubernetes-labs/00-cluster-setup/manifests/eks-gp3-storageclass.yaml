@@ -1,0 +1,19 @@
+# gp3 StorageClass, marked default. RWO dynamic volumes via EBS CSI.
+# WaitForFirstConsumer => the volume is created in the same AZ as the pod that needs it
+# (critical for multi-AZ clusters; an EBS volume can't cross AZs).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  encrypted: "true"
+reclaimPolicy: Delete
+---
+# Optional: demote the old in-tree gp2 default so there's exactly one default.
+# kubectl patch storageclass gp2 -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'

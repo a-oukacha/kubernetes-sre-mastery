@@ -1,0 +1,36 @@
+# eksctl cluster config for the course.
+# Usage: eksctl create cluster -f eks-cluster.yaml
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: k8s-sre-course
+  region: eu-west-1
+  version: "1.30"            # pin a current, supported version
+
+iam:
+  withOIDC: true             # required for IRSA (lab 19)
+
+availabilityZones:           # multi-AZ so topology-spread labs (14) are real
+  - eu-west-1a
+  - eu-west-1b
+  - eu-west-1c
+
+managedNodeGroups:
+  - name: ng-default
+    instanceType: t3.large   # 2 vCPU / 8 GB — small, CPU-only
+    desiredCapacity: 3
+    minSize: 2
+    maxSize: 5               # Cluster Autoscaler scales within this (lab 18)
+    volumeSize: 30
+    volumeType: gp3
+    # Tags Cluster Autoscaler auto-discovers:
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/k8s-sre-course: "owned"
+    labels:
+      course.node-pool: default
+    # spread the group across all AZs
+    availabilityZones: ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+
+# Add-ons installed via `eksctl create addon` in eks.md (ebs-csi, metrics-server, …)

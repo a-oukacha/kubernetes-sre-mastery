@@ -1,0 +1,14 @@
+# EFS StorageClass for RWX (ReadWriteMany) — lab 09's shared-volume demo.
+# Prereq: an EFS filesystem + mount targets in the cluster's VPC subnets.
+# Replace fileSystemId with your fs-xxxx. EFS bills per GB + throughput — delete after lab 09.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-rwx
+provisioner: efs.csi.aws.com
+parameters:
+  provisioningMode: efs-ap          # dynamic access-point provisioning
+  fileSystemId: fs-CHANGEME
+  directoryPerms: "700"
+reclaimPolicy: Delete
+# No volumeBindingMode needed: EFS is region-wide, not AZ-bound (that's the point of RWX here).
