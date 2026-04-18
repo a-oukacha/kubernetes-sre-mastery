@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kubernetes + SRE Mastery · 20-Lab Cookbook</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify@4/lib/themes/dark.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    :root {
+      --theme-color: #326ce5;
+      --sidebar-width: 310px;
+      --base-font-size: 16px;
+    }
+    body { background: #070b12; color: #cdd9ec; font-family: 'Inter', system-ui, sans-serif; line-height: 1.7; }
+    .sidebar {
+      background: #080d16;
+      border-right: 1px solid #326ce533;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78em;
+    }
+    .sidebar-nav a { color: #6f9bef; }
+    .sidebar-nav a:hover { color: #8fb4ff; text-shadow: 0 0 8px #326ce5; }
+    .sidebar-nav li.active > a { color: #8fb4ff; text-shadow: 0 0 10px #326ce5; border-right: 2px solid #326ce5; }
+    .sidebar-nav ul ul { font-size: 0.92em; }
+    .app-name a { color: #8fb4ff; text-shadow: 0 0 12px #326ce5; font-family: 'Space Grotesk', sans-serif; letter-spacing: 0.04em; }
+    .sidebar-nav p strong { color: #34d399; text-shadow: 0 0 6px #34d39988; font-size: 0.85em; letter-spacing: 0.08em; }
+    .markdown-section { background: #070b12; color: #cdd9ec; font-family: 'Inter', system-ui, sans-serif; font-size: 1rem; line-height: 1.75; max-width: 880px; }
+    .markdown-section h1 { font-family: 'Space Grotesk', sans-serif; color: #8fb4ff; text-shadow: 0 0 14px #326ce566; font-weight: 700; }
+    .markdown-section h2 { font-family: 'Space Grotesk', sans-serif; color: #34d399; text-shadow: 0 0 10px #34d39955; font-weight: 600; }
+    .markdown-section h3 { font-family: 'Space Grotesk', sans-serif; color: #00d3e0; text-shadow: 0 0 8px #00d3e044; font-weight: 600; }
+    .markdown-section h4 { font-family: 'Space Grotesk', sans-serif; color: #f0c040; }
+    .markdown-section a { color: #00d3e0; text-shadow: 0 0 4px #00d3e033; }
+    .markdown-section a:hover { color: #8fb4ff; text-shadow: 0 0 8px #326ce5; }
+    .markdown-section code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; background: #0d1626; color: #6f9bef; border: 1px solid #326ce533; border-radius: 3px; padding: 2px 6px; }
+    .markdown-section pre { background: #0a1019; border: 1px solid #326ce533; border-radius: 6px; box-shadow: 0 0 16px #326ce511; }
+    .markdown-section pre code { font-family: 'JetBrains Mono', monospace; color: #cfe0ff; background: transparent; border: none; padding: 0; }
+    .markdown-section blockquote { border-left: 3px solid #34d399; background: #08120d; color: #a8e6c8; border-radius: 0 4px 4px 0; }
+    .markdown-section table th { background: #0a1019; color: #8fb4ff; border-color: #326ce533; font-family: 'Space Grotesk', sans-serif; font-weight: 600; }
+    .markdown-section table td { border-color: #326ce520; }
+    .markdown-section table tr:nth-child(2n) { background: #0a1019; }
+    .markdown-section hr { border-color: #326ce533; box-shadow: 0 0 4px #326ce533; }
+    .markdown-section strong { color: #f0c040; }
+    .markdown-section em { color: #a8c4e8; }
+    .search input { background: #0d1626; color: #6f9bef; border: 1px solid #326ce555; caret-color: #326ce5; font-family: 'Inter', sans-serif; }
+    .search input::placeholder { color: #4a6aa0aa; }
+    .content { border-left: none; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    window.$docsify = {
+      name: 'K8s + SRE Labs',
+      nameLink: '/',
+      repo: '',
+      loadSidebar: true,
+      subMaxLevel: 1,
+      auto2top: true,
+      search: {
+        placeholder: 'Search the labs…',
+        noData: 'No results',
+        depth: 3,
+      },
+      pagination: {
+        previousText: '← Previous',
+        nextText: 'Next →',
+        crossChapter: true,
+      },
+      copyCode: {
+        buttonText: 'Copy',
+        errorText: 'Error',
+        successText: 'Copied!',
+      },
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-pagination/dist/docsify-pagination.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-docker.min.js"></script>
+</body>
+</html>
