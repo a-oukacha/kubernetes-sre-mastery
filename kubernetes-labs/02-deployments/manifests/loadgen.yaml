@@ -1,0 +1,31 @@
+# In-cluster fortio load generator. Hammers the podinfo Service over ClusterIP
+# DNS at a steady rate so you can watch failed-request count WHILE a rollout
+# happens. -qps 50 -t 0 = run forever at 50 req/s; -timeout keeps a stalled
+# backend from blocking the whole run.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: loadgen
+  labels:
+    app.kubernetes.io/name: loadgen
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "02"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: fortio
+      image: fortio/fortio:1.60.3
+      args:
+        - load
+        - -qps=50
+        - -t=0
+        - -timeout=2s
+        - -uniform
+        - http://podinfo:9898/
+      resources:
+        requests:
+          cpu: 50m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 64Mi

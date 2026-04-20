@@ -1,0 +1,64 @@
+# The "bad release". Image is fine and the process starts and serves traffic,
+# but the readiness probe points at a path that does NOT exist (404), so new
+# pods never become Ready. With maxUnavailable=0 the rollout cannot retire any
+# old pod, so it STALLS indefinitely instead of taking traffic. This is the
+# safety property the lab exists to demonstrate.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "02"
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: podinfo
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: podinfo
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "02"
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9898
+          command:
+            - ./podinfo
+            - --port=9898
+            - --ui-color=#dc2626
+            - --ui-message=version v3 (broken readiness)
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /this-path-404s   # podinfo returns 404 here -> never Ready
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz          # liveness is fine, so pods don't crash-loop
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
