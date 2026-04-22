@@ -1,0 +1,115 @@
+# The reference app for lab 03. ONE manifest that wires all three probe types
+# plus a graceful-shutdown lifecycle, so you can exercise every behavior on it.
+#
+# WHY exec/sentinel probes instead of agnhost's HTTP /healthz:
+#   agnhost netexec serves real HTTP on :8080 (so the Service has a real backend
+#   and fortio gets real 200s), BUT its /healthz cannot be flipped to fail on
+#   demand over HTTP. So we drive the PROBES off sentinel files we control by
+#   hand with `kubectl exec`:
+#     /tmp/started  -> created by the container itself after STARTUP_DELAY (slow boot sim)
+#     /tmp/healthy  -> created at boot; `rm` it to make LIVENESS fail (kubelet restarts)
+#     /tmp/ready    -> created at boot; `rm` it to make READINESS fail (dropped from Service)
+#   The container restores all three on (re)start, so a liveness restart self-heals.
+#
+# Slow start: the wrapper sleeps STARTUP_DELAY seconds BEFORE it touches
+# /tmp/started and before it launches netexec. The startupProbe gates liveness &
+# readiness during that window so the app is NOT killed while booting.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-demo
+  labels:
+    app.kubernetes.io/name: health-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "03"
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: health-demo
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: health-demo
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "03"
+    spec:
+      # SIGTERM gets STARTUP_DELAY + preStop + drain headroom before SIGKILL.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: app
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: STARTUP_DELAY
+              value: "20"          # seconds of fake "boot" before serving
+          # Wrapper: simulate slow boot, drop sentinels, THEN exec netexec.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "booting; will be ready in ${STARTUP_DELAY}s"
+              sleep "${STARTUP_DELAY}"
+              touch /tmp/started /tmp/healthy /tmp/ready
+              echo "boot complete; serving on :8080"
+              exec /agnhost netexec --http-port=8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          # STARTUP: gates the other two until /tmp/started exists. Generous
+          # budget = failureThreshold * periodSeconds = 30 * 2s = 60s of boot.
+          startupProbe:
+            exec:
+              command: ["cat", "/tmp/started"]
+            periodSeconds: 2
+            failureThreshold: 30
+          # READINESS: "can I serve a request right now?" Removing /tmp/ready
+          # drops this pod from the Service endpoints; the pod KEEPS running.
+          readinessProbe:
+            exec:
+              command: ["cat", "/tmp/ready"]
+            periodSeconds: 2
+            failureThreshold: 2
+            successThreshold: 1
+          # LIVENESS: "is the process wedged?" Removing /tmp/healthy makes the
+          # kubelet RESTART the container in place (RESTARTS++), not reschedule.
+          livenessProbe:
+            exec:
+              command: ["cat", "/tmp/healthy"]
+            periodSeconds: 5
+            failureThreshold: 3
+          # MANAGED LIFECYCLE: on delete, kubelet runs preStop, THEN sends
+          # SIGTERM. The sleep keeps the dying pod serving in-flight requests
+          # while the endpoint removal propagates through kube-proxy.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: health-demo
+  labels:
+    app.kubernetes.io/name: health-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "03"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: health-demo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
