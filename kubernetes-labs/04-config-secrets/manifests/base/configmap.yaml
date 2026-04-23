@@ -1,0 +1,24 @@
+# A ConfigMap consumed THREE ways by the Deployment:
+#   1. GREETING        -> single env var via valueFrom.configMapKeyRef
+#   2. all keys        -> bulk env via envFrom (LOG_LEVEL, FEATURE_FLAG, GREETING)
+#   3. app.conf        -> a file, via volume mount at /etc/appconfig/app.conf
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  labels:
+    app.kubernetes.io/name: config-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "04"
+data:
+  # scalar keys -> become env vars and file entries
+  GREETING: "hello from BASE"
+  LOG_LEVEL: "info"
+  FEATURE_FLAG: "off"
+  # a multi-line file -> mounted as /etc/appconfig/app.conf
+  app.conf: |
+    # rendered config file (mounted, NOT baked into the image)
+    greeting   = hello from BASE
+    log_level  = info
+    feature.x  = off
+    refreshed_from = configmap-volume

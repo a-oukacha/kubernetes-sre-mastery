@@ -1,0 +1,13 @@
+# ANTI-PATTERN (used only in Break it): a secret value stuffed into a plain
+# ConfigMap. ConfigMaps are NOT secret — `kubectl get cm -o yaml` shows the value
+# in clear text to anyone with get access. This is what NOT to do.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: leaky-config
+  labels:
+    app.kubernetes.io/name: config-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "04"
+data:
+  DB_PASSWORD: "definitely-should-not-be-here"

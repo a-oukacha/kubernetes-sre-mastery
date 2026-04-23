@@ -1,0 +1,80 @@
+# One busybox pod that, every 5s, prints:
+#   - the ENV value of GREETING  (frozen at container start)
+#   - the MOUNTED FILE app.conf  (refreshed live by the kubelet)
+#   - the mounted Secret file    (to contrast Secret-as-file vs Secret-as-env)
+# This makes the env-vs-file behavioral difference visible in `kubectl logs`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: config-demo
+  labels:
+    app.kubernetes.io/name: config-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "04"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: config-demo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: config-demo
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "04"
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                echo "==== $(date -u +%H:%M:%S) ===="
+                echo "ENV  GREETING=$GREETING   (frozen at start)"
+                echo "ENV  LOG_LEVEL=$LOG_LEVEL FEATURE_FLAG=$FEATURE_FLAG"
+                echo "ENV  API_TOKEN=$API_TOKEN (secret via env)"
+                echo "FILE /etc/appconfig/app.conf ->"
+                cat /etc/appconfig/app.conf
+                echo "FILE /etc/appsecret/db-password ->"
+                cat /etc/appsecret/db-password; echo
+                sleep 5
+              done
+          env:
+            # 1) single key -> one env var
+            - name: GREETING
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: GREETING
+            # 3) secret value injected as a plain env var (Break-it inspects this)
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: API_TOKEN
+          envFrom:
+            # 2) bulk import every key in the ConfigMap as env vars
+            - configMapRef:
+                name: app-config
+          volumeMounts:
+            - name: config-vol
+              mountPath: /etc/appconfig     # ConfigMap as files (live updates)
+              readOnly: true
+            - name: secret-vol
+              mountPath: /etc/appsecret      # Secret as files (preferred over env)
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+      volumes:
+        - name: config-vol
+          configMap:
+            name: app-config
+        - name: secret-vol
+          secret:
+            secretName: app-secret

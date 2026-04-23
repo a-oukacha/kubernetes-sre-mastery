@@ -1,0 +1,71 @@
+# Lecture 04 - Configuration & secrets: env is frozen, files are live, Base64 isn't a lock
+
+## Answers to the lab checkpoints
+- **(0) Yes - at the moment you deployed, the env `GREETING` and the file's `greeting` line are the same** dev value, because both came from the same ConfigMap at container start. They only *diverge* once you change the ConfigMap on a running pod (step 2). The point of consuming it both ways is to make that divergence visible.
+- **(1)** All three styles resolve. `GREETING` comes from a single-key `configMapKeyRef`; `LOG_LEVEL`/`FEATURE_FLAG` were pulled in wholesale by `envFrom` (every key in the ConfigMap becomes an env var of the same name); and `app.conf` is projected as a file under `/etc/appconfig/`. One ConfigMap, three delivery mechanisms.
+- **(2)** **Only the mounted file** updates in the already-running pod. After the kubelet's sync (tens of seconds; not instant), `cat /etc/appconfig/app.conf` shows `hello from EDITED`, while `printenv GREETING` still prints the old value. Environment variables are fixed in the process's environment block at exec time - Kubernetes cannot reach into a running process and rewrite them.
+- **(3)** After `rollout restart`, a brand-new container starts and reads the *current* ConfigMap into its environment, so `printenv GREETING` finally shows `hello from EDITED`. Env-sourced config requires a pod restart (a new process) to change - there is no live path.
+- **(4)** **Rejected.** The API server refuses to mutate `data`/`binaryData` (or flip `immutable` back) on a ConfigMap marked `immutable: true`. The error tells you the only legal move: create a *new* ConfigMap (new name) and update the references that point at it. That constraint is the feature, not a bug - see the Immutable Configuration pattern below.
+- **(5)** Same `base/`, two renders. The dev overlay patches the ConfigMap to `hello from DEV` / `debug` / flag `on`; prod patches it to `hello from PROD` / `warn` / flag `off`. `diff` is non-empty. You never edited the base - Kustomize applied a JSON6902 patch per overlay, so the environments stay DRY and the difference is explicit and reviewable.
+- **(B1)** **Clear text.** A ConfigMap stores its `data` values verbatim. There is no encoding, no hashing, no encryption - `kubectl get cm -o yaml` shows `DB_PASSWORD: definitely-should-not-be-here` to anyone with `get` on ConfigMaps in that namespace.
+- **(B2)** A Secret's `data` is **Base64-encoded, which looks scrambled but is trivially reversible: `base64 -d` returns the plaintext in one command. Base64 is a transport encoding (so binary/odd bytes survive YAML), not a security control. The only real protection is (a) RBAC limiting who can read Secrets and (b) encryption-at-rest** in etcd, which you must enable.
+- **(B3) Reading `/etc/appsecret/db-password` returns the secret without it appearing in the pod's env listing in `kubectl describe pod`. Mounted secrets keep the value out of `describe`/env dumps and child-process environments, and the file is backed by in-memory `tmpfs` (not written to the node's disk). That's why file > env** for secrets.
+
+---
+
+## What just happened (under the hood)
+You separated three things that beginners conflate: the **image** (immutable code), the **configuration** (per-environment values), and the **delivery mechanism** (env var vs file). The behavioral split you observed falls straight out of how each mechanism works:
+
+1. `envFrom` / `valueFrom` resolve once, at container creation. When the kubelet creates the container, it reads the referenced ConfigMap/Secret keys and bakes them into the process's environment block, then `exec`s the entrypoint. A Unix process's environment is fixed for its lifetime - nothing, not even the kubelet, edits it in place. So changing the ConfigMap does nothing to a running env-sourced value; you need a new process (pod restart) to pick it up.
+
+2. Volume-mounted ConfigMaps/Secrets are projected into a `tmpfs` the kubelet keeps in sync. The mount you see isn't a static copy - the kubelet periodically (the sync loop, on the order of its `--sync-frequency`, ~1 minute, plus cache TTL) re-reads the object and **atomically swaps the contents via a symlink flip into a timestamped `..data` directory. Because the swap is atomic, your app never sees a half-written file; because it's periodic, the update is eventually** live, not instant. That's the "tens of seconds" you waited.
+
+3. Secrets are Base64 in the object and `tmpfs` on the node - not encrypted by default. A Secret differs from a ConfigMap mainly in intent and a few safety behaviors (tmpfs-backed mounts, omitted from some logs, distributed only to nodes that need them). Its `data` is Base64-*encoded*. Encryption-at-rest of etcd is a **cluster configuration** (`EncryptionConfiguration` with a provider - `aescbc`/`kms`), not a property of the Secret object. Until that's on, a node compromise or an etcd backup leak hands over every Secret.
+
+4. **Kustomize is a pure render step.** `kubectl kustomize` (or `apply -k`) builds the final YAML by layering overlay patches onto the base, in your client, before anything hits the API server. The base is the single source of truth; dev/prod are diffs. There's no template language and no server-side component - it's structured editing of YAML.
+
+Two durable lessons:
+- Env is a snapshot; files are a subscription. Pick the mechanism by whether you want change-on-restart (predictable, versioned with the deploy) or change-live (reload-capable apps only).
+- "Secret" is a promise about handling, not a guarantee of secrecy. Base64 protects nothing; RBAC + encryption-at-rest + keeping plaintext out of Git is what actually protects.
+
+## Dev notes
+- 12-factor config: never bake env-specific values into the image. The same image runs in dev, staging, and prod; only the ConfigMap/Secret differs. If you `docker build` a prod URL into the binary, you've coupled config to a rebuild.
+- **Decide env vs file deliberately. Env vars are simplest and universal, but they're frozen at start and leak into `describe`, crash dumps, and child processes. Files update live and stay out of env dumps. For anything you'd want to hot-reload (feature flags, log level) or anything secret**, use a mounted file and have the app `watch`/re-read it (e.g. `fsnotify`, or re-read on `SIGHUP`).
+- **Hot reload is opt-in.** The file updating does *not* mean your app noticed. If your code reads the file once at startup, a live file update is invisible until restart anyway. Reload-on-change is application logic you must write - and test.
+- **`envFrom` pulls *every* key.** Add a key to the ConfigMap and it silently becomes an env var. Convenient, but it can shadow or surprise; name keys like env vars (`UPPER_SNAKE`) when using `envFrom`.
+
+## DevOps / Platform notes
+- **Kustomize vs Helm.** Kustomize (built into kubectl) is overlay/patch-based: great when environments are *the same shape with different values*, no templating language to learn, diffs are obvious. Helm is template + values + packaging + release lifecycle: better for redistributable charts, conditionals, and loops. Many shops use Helm to *package* and Kustomize to *customize* (`helm template | kustomize`, or Argo CD's Kustomize+Helm support). Pick by whether you need logic (Helm) or just per-env values (Kustomize).
+- Encryption-at-rest is a day-1 platform task. Without it, Secrets are Base64 in etcd. `### EKS`: enable Secrets encryption with a KMS CMK (`eksctl utils enable-secrets-encryption`/`EncryptionConfig`). `### OVH`: managed etcd is encrypted at rest by the platform - you still treat Base64 as non-secret. Either way, also envelope-encrypt etcd backups.
+- Never commit plaintext secrets to Git. ConfigMaps in Git are fine; Secrets are not. This is exactly the gap Sealed Secrets / External Secrets Operator close in **lab 19** - encrypt the secret so the *ciphertext* is what lives in Git, decrypted only in-cluster.
+- Changing a ConfigMap doesn't roll your pods. There's no built-in "config changed -> restart." Teams either add a checksum annotation to the pod template (so a config change changes the template hash and triggers a rollout) or use a Kustomize `configMapGenerator` with a name suffix hash (a new ConfigMap name -> a new pod template -> a rollout). Without one of these, env-sourced config silently goes stale.
+
+## Architect notes (trade-offs)
+- Mutable ConfigMap vs Immutable Configuration. A mutable ConfigMap is convenient but is a *moving target*: "what config was running at 3am Tuesday?" has no answer if someone `kubectl edit`-ed it. The **Immutable Configuration** pattern (KP 21) ships config as a *versioned, unchangeable artifact* - `immutable: true` ConfigMaps named `app-config-v1`, `-v2`, or config baked into a dedicated image and copied in via an init container. A config change becomes a *deploy* with a version and a rollback, exactly like code. Trade-off: more objects and a name-bump dance vs auditability and safe rollback. Bonus: `immutable: true` also lets the kubelet stop watching the object, cutting API-server load at scale.
+- Configuration Resource vs Configuration Template. ConfigMaps/Secrets (KP 20, "Configuration Resource") are great for flat-ish key/value config. When config is large, derived, or assembled from many fragments, the **Configuration Template** pattern (KP 22) generates the final config (Helm, an init container running `gomplate`/`envsubst`, or a controller) rather than hand-maintaining it. Choose templating when the config has *logic*; choose plain resources when it's just values.
+- The 1 MB ceiling is an architectural constraint. A ConfigMap or Secret can't exceed ~1 MiB (it's an etcd object). Large prompts, model configs, or rules files will hit it. The answer is not to fight it - it's to move bulk content into an image (Immutable Config) or an object store and keep only a pointer in the ConfigMap.
+
+## SRE notes (failure modes, SLOs, toil)
+- Configuration change is a leading cause of incidents - often *the* leading cause, ahead of code. Treat a config rollout like a deploy: version it, canary it, and be able to roll back in one command. A mutable ConfigMap edited by hand has none of those properties; an immutable, Git-tracked, Kustomize-rendered config has all three.
+- The env-vs-file split is itself a failure mode. You change a ConfigMap, the mounted file updates, but env-sourced values don't - so half your config is new and half is old until a restart. Worse, a hot-reload an app *mishandles* (re-reads a half-applied multi-key change, or reloads to a bad value with no validation) is its own outage, live, with no deploy to point at. Validate config on reload; fail closed to the last-known-good.
+- Secrets exposure is a slow-burn incident. A secret in an env var shows up in `kubectl describe`, crash dumps, error trackers, and child-process environments; a secret in a ConfigMap is plaintext in Git history forever. The on-call cost is rotation under pressure. Prefer mounted Secrets, lock down `get secret` RBAC, and enable encryption-at-rest so an etcd backup leak isn't game-over.
+- **Toil reducer:** a checksum/hash annotation that auto-rolls pods on config change removes the "did anyone restart the pods after the config change?" question from every change ticket.
+
+## AI/ML notes (LLM/ML serving mapping - conceptual)
+- Config is how you pin a model's behavior. Model version and weights path, sampling params (`temperature`, `top_p`, `max_tokens`), and the **prompt template** are textbook ConfigMap content - exactly the kind of per-environment value you'd patch with a dev/prod overlay (e.g. a chatty `temperature` in dev, conservative in prod). The same env-vs-file rule applies: if you want to tweak sampling without a restart, mount it as a file and have the server re-read it.
+- The 1 MB limit bites prompt/config-heavy serving. A large system prompt, a big few-shot set, or a routing table can exceed a ConfigMap. Move it into the model-server image (Immutable Config, versioned with the weights) or an object store (S3/GCS) and keep a pointer + checksum in the ConfigMap - the Immutable Configuration pattern, applied to prompts.
+- Provider API keys are Secrets, not ConfigMap entries. OpenAI/Anthropic/HF tokens, model-registry creds, and bucket access belong in Secrets (mounted as files), with encryption-at-rest on. **Lab 19** hardens this further (External/Sealed Secrets, per-workload ServiceAccounts) so a key never lands in Git or an env dump.
+- **Reproducibility:** an immutable, versioned config (model vN + prompt vN + sampling vN) is what lets you say "this exact behavior served traffic on Tuesday" - essential when a quality regression looks like a model change but is actually a config change.
+
+## Pitfalls
+- Putting secrets in env vars or ConfigMaps. Env leaks into `describe`/dumps/children; ConfigMaps are plaintext. Use mounted Secrets and RBAC.
+- **Expecting live ENV updates.** Only **files** update live. Env-sourced config needs a pod restart - full stop.
+- **Forgetting the ~1 MB limit** on ConfigMaps/Secrets - large config silently fails to apply or gets rejected.
+- **Thinking Base64 is encryption.** It is encoding. `base64 -d` undoes it instantly. Encryption-at-rest is a separate, must-enable feature.
+- **Immutable means *new object to change*.** You can't edit an `immutable: true` ConfigMap - you create a new one and re-point references (and that's the point: auditable, rollback-able config).
+- Editing a ConfigMap and assuming pods rolled. They didn't. No checksum annotation / no name-hash -> env config goes stale and mounted files drift mid-fleet.
+
+## Further reading
+- **KIA ch7** - ConfigMaps & Secrets: the three consumption styles, volume projection, the env-immutability behavior.
+- **KP Part IV (Configuration patterns)** - **EnvVar Config** (19), **Configuration Resource** (20), **Immutable Configuration** (21), **Configuration Template** (22). Read these four together; this lab exercises all four.
+- Kubernetes docs: *Encrypting Confidential Data at Rest* (etcd `EncryptionConfiguration`, KMS provider) - the feature that makes a Secret actually secret. Sealed Secrets / External Secrets are previewed here and built in **lab 19**.

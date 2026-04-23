@@ -1,0 +1,18 @@
+# An immutable ConfigMap. Once created, the API server REJECTS any edit to
+# `data`/`binaryData`. To change it you must create a NEW ConfigMap (new name)
+# and update the reference. This is the Immutable Configuration pattern in
+# miniature: config becomes a versioned, unchangeable artifact.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config-v1
+  labels:
+    app.kubernetes.io/name: config-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "04"
+immutable: true
+data:
+  GREETING: "hello from IMMUTABLE v1"
+  app.conf: |
+    greeting = hello from IMMUTABLE v1
+    version  = 1
