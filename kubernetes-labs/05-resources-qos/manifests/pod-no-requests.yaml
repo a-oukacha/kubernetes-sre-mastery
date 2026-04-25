@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: no-requests
+  labels:
+    app.kubernetes.io/name: no-requests
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "05"
+spec:
+  containers:
+    - name: app
+      image: registry.k8s.io/e2e-test-images/agnhost:2.47
+      args: ["netexec", "--http-port=8080"]
+      ports:
+        - containerPort: 8080
+      # Deliberately declares NO resources block.
+      # - With the LimitRange applied (Step 6): admission DEFAULTS requests/limits in.
+      # - With the ResourceQuota applied (Step 7) and NO LimitRange to default it:
+      #   admission REJECTS this pod ("must specify ...requests").

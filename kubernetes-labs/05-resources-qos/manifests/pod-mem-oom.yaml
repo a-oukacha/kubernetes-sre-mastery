@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mem-hog
+  labels:
+    app.kubernetes.io/name: mem-hog
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "05"
+spec:
+  # restartPolicy Always (the default) so you can WATCH the OOMKill->restart loop.
+  containers:
+    - name: stress
+      image: polinux/stress:1.0.4
+      # Allocate ~150Mi against a 64Mi limit. Memory is incompressible:
+      # the kernel cannot reclaim it, so the cgroup OOM-killer reaps the process.
+      # Numbers are deliberately tiny — we OOM the POD, never the node.
+      command: ["stress"]
+      args: ["--vm", "1", "--vm-bytes", "150M", "--vm-hang", "0", "--timeout", "600s"]
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi          # < working set on purpose => OOMKilled, exit 137

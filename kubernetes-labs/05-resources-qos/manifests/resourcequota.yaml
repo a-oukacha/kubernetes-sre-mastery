@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: lab-05-quota
+  labels:
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "05"
+spec:
+  hard:
+    # Aggregate ceilings across ALL pods in the namespace.
+    # Once this object exists, every container MUST declare the matching
+    # request/limit (directly or via the LimitRange default) or admission rejects it.
+    requests.cpu: 500m
+    requests.memory: 512Mi
+    limits.cpu: "2"
+    limits.memory: 1Gi
+    pods: "10"

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: lab-05-defaults
+  labels:
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "05"
+spec:
+  limits:
+    - type: Container
+      # Injected when a container omits limits:
+      default:
+        cpu: 200m
+        memory: 128Mi
+      # Injected when a container omits requests:
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      # Hard per-container bounds (admission rejects anything outside):
+      min:
+        cpu: 10m
+        memory: 16Mi
+      max:
+        cpu: "1"
+        memory: 512Mi
