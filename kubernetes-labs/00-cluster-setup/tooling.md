@@ -8,7 +8,7 @@ Install once; used by every lab.
 
 | Tool | Why | Install (macOS/Linux) |
 |------|-----|------------------------|
-| `kubclt` | the core CLI | `brew install kubectl` / [official docs] |
+| `kubectl` | the core CLI | `brew install kubectl` / [official docs] |
 | `helm` | install charts (ingress, prometheus, ...) | `brew install helm` |
 | `eksctl` | provision EKS | `brew install eksctl` |
 | `awscli` v2 | EKS auth | `brew install awscli` |
