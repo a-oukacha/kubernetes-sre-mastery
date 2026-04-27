@@ -1,0 +1,19 @@
+# ClusterIP: the default. A stable virtual IP (VIP) + DNS name reachable only from
+# inside the cluster (east-west). kube-proxy DNATs the VIP to a Ready endpoint.
+# DNS name: backend.lab-06-services-dns.svc.cluster.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "06"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: backend
+  ports:
+    - name: http
+      port: 80          # the Service port clients dial
+      targetPort: http  # the named container port (8080)

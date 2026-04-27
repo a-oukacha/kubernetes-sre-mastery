@@ -1,0 +1,30 @@
+# !!! COST GUARD !!! Applying this provisions a REAL, BILLED cloud load balancer
+# (one LB per Service). It is OPTIONAL. The cloud-specific annotations for EKS (NLB
+# via AWS Load Balancer Controller) and OVH are in lab.md's LoadBalancer step --
+# uncomment the block for your cloud. The generic spec below works on any cloud that
+# has a cloud-controller, but tune the annotations per provider for internal/external,
+# health checks, etc. DELETE THIS SERVICE in Cleanup or you keep paying.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-lb
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "06"
+  annotations: {}
+    # --- EKS (uncomment): external NLB via AWS Load Balancer Controller ---
+    # service.beta.kubernetes.io/aws-load-balancer-type: external
+    # service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    # service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing   # or internal
+    #
+    # --- OVH (uncomment): OVH Load Balancer via cloud-controller ---
+    # service.beta.kubernetes.io/ovh-loadbalancer-proxy-protocol: "v2"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,24 @@
+# A tiny long-lived client pod. You exec into it to run nslookup (DNS) and wget
+# (HTTP) against the Services -- proving discovery and load balancing from INSIDE
+# the cluster. sleep keeps it alive; it carries no labels the Services select on.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  labels:
+    app.kubernetes.io/name: client
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "06"
+spec:
+  containers:
+    - name: client
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "sleep 36000"]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 50m
+          memory: 32Mi

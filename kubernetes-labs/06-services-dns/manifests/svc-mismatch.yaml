@@ -1,0 +1,21 @@
+# The CLASSIC silent failure. This Service looks perfectly healthy -- it has a VIP,
+# a DNS name, no error anywhere -- but its selector (app=backend, the wrong key/value)
+# matches ZERO pods. Result: empty endpoints from birth, and every client gets a
+# connection refused / timeout with nothing in the Service's status to explain it.
+# The backend pods use app.kubernetes.io/name: backend, NOT app: backend.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-typo
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "06"
+spec:
+  type: ClusterIP
+  selector:
+    app: backend          # <-- WRONG: no pod carries this label. Endpoints stay empty.
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
