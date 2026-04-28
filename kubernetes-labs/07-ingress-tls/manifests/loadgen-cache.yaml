@@ -1,0 +1,33 @@
+# fortio hitting the CACHE Service. Same URL every time -> after the first MISS
+# every request is a cache HIT served from nginx, so backend-a sees almost no
+# traffic. /delay/0.1 makes the backend slow (100ms) — but only the FIRST,
+# uncached request pays that cost; HITs return instantly. This is the exact same
+# URL/load as loadgen-direct.yaml, so the two runs are directly comparable.
+#   -qps 80 -t 20s = 80 req/s for 20s (~1600 requests). -c 8 = 8 connections.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: loadgen-cache
+  labels:
+    app.kubernetes.io/name: loadgen
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "07"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: fortio
+      image: fortio/fortio:1.60.3
+      args:
+        - load
+        - -qps=80
+        - -t=20s
+        - -c=8
+        - -timeout=2s
+        - http://cache/delay/0.1
+      resources:
+        requests:
+          cpu: 50m
+          memory: 32Mi
+        limits:
+          cpu: 300m
+          memory: 64Mi

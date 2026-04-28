@@ -1,0 +1,41 @@
+# Same routing as ingress-routing.yaml, now with TLS termination at the edge.
+# The tls: block names the host(s) and the Secret (lab07-tls, produced by
+# cert-manager from tls-issuer-cert.yaml). ingress-nginx terminates TLS here and
+# proxies cleartext to the ClusterIP backends inside the cluster.
+#
+# ssl-redirect would 308 http->https; we leave it default (on once a tls block
+# exists) so you can observe the redirect.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-routing
+  labels:
+    app.kubernetes.io/name: demo-ingress
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "07"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - lab07.demo.local
+      secretName: lab07-tls
+  rules:
+    - host: lab07.demo.local
+      http:
+        paths:
+          - path: /a(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: backend-a
+                port:
+                  number: 9898
+          - path: /b(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: backend-b
+                port:
+                  number: 9898

@@ -1,0 +1,36 @@
+# cert-manager objects that mint the TLS Secret the Ingress references.
+#
+# A self-signed Issuer is the simplest possible CA — it signs its own leaf certs.
+# (In prod you'd use a ClusterIssuer backed by Let's Encrypt ACME + HTTP-01/DNS-01,
+#  or your org CA. The OBJECTS are identical; only the Issuer kind/spec changes.)
+#
+# The Certificate is a request: "give me a cert for lab07.demo.local, store the
+# key+cert in Secret lab07-tls." cert-manager watches it, asks the Issuer to sign,
+# writes the kubernetes.io/tls Secret, and RENEWS it before expiry automatically.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned
+  labels:
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "07"
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: lab07-tls
+  labels:
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "07"
+spec:
+  secretName: lab07-tls          # <- the TLS Secret produced; referenced by the Ingress
+  duration: 2160h                # 90d
+  renewBefore: 360h              # 15d — cert-manager rotates before this point
+  commonName: lab07.demo.local
+  dnsNames:
+    - lab07.demo.local
+  issuerRef:
+    name: selfsigned
+    kind: Issuer

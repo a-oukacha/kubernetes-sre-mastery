@@ -1,0 +1,113 @@
+# Caching tier: nginx configured as a reverse proxy with proxy_cache, sitting in
+# front of backend-a. This is the middle tier of edge -> CACHE -> app.
+#
+# Key bits of the nginx.conf below:
+#   proxy_cache_path ... keys_zone=appcache  -> a 50 MB on-disk cache zone
+#   proxy_cache_valid 200 60s                -> cache 200s for 60 seconds
+#   proxy_cache_key "$scheme$request_method$host$request_uri"
+#   add_header X-Cache-Status $upstream_cache_status  -> HIT / MISS / EXPIRED, visible in the response
+#   proxy_cache_lock on                      -> collapse concurrent misses into ONE backend request
+#                                               (this is the anti-cache-stampede knob)
+#
+# proxy_pass http://backend-a:9898  -> the ClusterIP Service of backend A.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-nginx-conf
+  labels:
+    app.kubernetes.io/name: cache
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "07"
+data:
+  nginx.conf: |
+    worker_processes 1;
+    events { worker_connections 1024; }
+    http {
+      proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=appcache:10m
+                       max_size=50m inactive=60s use_temp_path=off;
+      log_format cachelog '$remote_addr "$request" $status cache=$upstream_cache_status';
+      access_log /dev/stdout cachelog;
+
+      server {
+        listen 8080;
+        location / {
+          proxy_pass http://backend-a:9898;
+          proxy_cache appcache;
+          proxy_cache_valid 200 60s;
+          proxy_cache_key "$scheme$request_method$host$request_uri";
+          proxy_cache_lock on;                 # collapse a thundering herd of misses into one
+          add_header X-Cache-Status $upstream_cache_status;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache
+  labels:
+    app.kubernetes.io/name: cache
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "07"
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cache
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cache
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "07"
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: cache-vol
+              mountPath: /var/cache/nginx
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 2
+      volumes:
+        - name: conf
+          configMap:
+            name: cache-nginx-conf
+        - name: cache-vol
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cache
+  labels:
+    app.kubernetes.io/name: cache
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "07"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cache
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
