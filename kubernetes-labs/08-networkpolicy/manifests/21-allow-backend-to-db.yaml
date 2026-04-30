@@ -1,0 +1,25 @@
+# ALLOW-LIST hop 2: backend -> db (ingress on the db side).
+# Punches the second and final hole. db may RECEIVE :8080 traffic ONLY from backend.
+# Crucially, there is NO frontend->db rule anywhere -- so once default-deny is in
+# place, frontend->db stays blocked. That blocked hop is the "least connectivity" /
+# blast-radius lesson: a compromised frontend cannot reach the data tier directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-db
+  labels:
+    course.lab: "08"
+spec:
+  podSelector:
+    matchLabels:
+      tier: db               # governs INGRESS to db pods
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: backend  # only the backend tier may dial the db
+      ports:
+        - protocol: TCP
+          port: 8080

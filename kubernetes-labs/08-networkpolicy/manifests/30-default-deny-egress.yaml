@@ -1,0 +1,18 @@
+# DEFAULT-DENY EGRESS for the whole namespace -- the policy that causes the classic
+# outage in Break-it.
+# Empty podSelector selects all pods; policyTypes:[Egress] with no egress rules flips
+# every pod to default-deny for OUTBOUND. This blocks EVERYTHING the pods initiate --
+# including the UDP/TCP :53 DNS lookups to kube-dns that resolve "backend" and "db".
+# Result: even hops that have an INGRESS allow break, because the client can no longer
+# RESOLVE the name (and couldn't egress to it anyway). Apply this WITHOUT the DNS
+# allow below to reproduce the "I added NetworkPolicy and DNS broke" incident.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  labels:
+    course.lab: "08"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress

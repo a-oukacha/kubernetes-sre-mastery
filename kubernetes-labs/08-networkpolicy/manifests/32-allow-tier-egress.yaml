@@ -1,0 +1,52 @@
+# EGRESS allow-list for the intended hops (the egress counterpart of the ingress
+# allow-lists in 20/21). With default-deny-egress in force, DNS resolves (31) but the
+# actual TCP :8080 connection is still blocked until we permit the outbound hop.
+#
+# This file holds two policies:
+#   1. frontend may egress to backend:8080
+#   2. backend  may egress to db:8080
+# Note what is NOT here: frontend has NO egress rule to db. Combined with the missing
+# frontend->db ingress allow, frontend->db is blocked on BOTH ends -- belt and braces.
+# Also note: nothing here grants egress to 0.0.0.0/0, so the internet stays blocked
+# (exfiltration containment).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress-backend
+  labels:
+    course.lab: "08"
+spec:
+  podSelector:
+    matchLabels:
+      tier: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: backend
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-egress-db
+  labels:
+    course.lab: "08"
+spec:
+  podSelector:
+    matchLabels:
+      tier: backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: db
+      ports:
+        - protocol: TCP
+          port: 8080

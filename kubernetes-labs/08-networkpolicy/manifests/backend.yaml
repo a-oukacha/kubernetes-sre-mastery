@@ -1,0 +1,59 @@
+# The backend tier: business logic. Allowed to receive from frontend and to call db.
+# It must NOT be reachable directly from outside its allowed callers once we segment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "08"
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "08"
+        tier: backend
+    spec:
+      containers:
+        - name: agnhost
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          imagePullPolicy: IfNotPresent
+          args: ["netexec", "--http-port=8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+# ClusterIP Service. DNS name: backend.lab-08-networkpolicy.svc.cluster.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "08"
+    tier: backend
+spec:
+  type: ClusterIP
+  selector:
+    tier: backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

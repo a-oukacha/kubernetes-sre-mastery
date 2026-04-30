@@ -1,0 +1,34 @@
+# THE FIX for the DNS outage: allow egress to kube-dns on UDP/TCP 53.
+# This is the single most-forgotten NetworkPolicy rule. It re-opens just enough egress
+# for name resolution: all pods in this namespace may send DNS (53/udp + 53/tcp) to
+# the kube-dns/CoreDNS pods in kube-system. Without this, default-deny-egress makes
+# every Service name unresolvable cluster-wide for the selected pods.
+#
+# We match kube-dns by namespace + pod label. NOTE the AND vs OR subtlety: putting
+# namespaceSelector and podSelector as TWO ENTRIES under `to:` means OR; nesting them
+# as ONE entry (as below) means AND -- "pods labeled k8s-app=kube-dns IN the
+# kube-system namespace." The kube-system namespace must carry kubernetes.io/metadata.name
+# (every namespace gets it automatically on modern clusters).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  labels:
+    course.lab: "08"
+spec:
+  podSelector: {}              # every pod in this namespace needs DNS
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

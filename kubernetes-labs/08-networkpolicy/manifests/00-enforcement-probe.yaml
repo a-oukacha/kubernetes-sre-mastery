@@ -1,0 +1,19 @@
+# ENFORCEMENT PROBE -- the first thing the lab applies.
+# A NetworkPolicy is INERT unless the CNI enforces it. This tiny policy selects ONLY
+# the db pod and grants it ZERO ingress rules => if the CNI enforces, all ingress to
+# db must drop (backend->db times out). If db is STILL reachable, your CNI is ignoring
+# NetworkPolicy and every policy in this lab is a silent no-op (false security).
+# Delete this probe before the real exercise: kubectl delete -f manifests/00-enforcement-probe.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: probe-deny-db-ingress
+  labels:
+    course.lab: "08"
+spec:
+  podSelector:
+    matchLabels:
+      tier: db
+  policyTypes:
+    - Ingress
+  # No `ingress:` rules at all => deny-all ingress for the selected (db) pods.

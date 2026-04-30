@@ -1,0 +1,26 @@
+# ALLOW-LIST hop 1: frontend -> backend (ingress on the backend side).
+# Policies are ADDITIVE. This does NOT override default-deny; it UNIONS with it,
+# punching one hole: pods labeled tier=backend may RECEIVE traffic on :8080 from
+# pods labeled tier=frontend. Nothing else gains access.
+# Note: this is a same-namespace podSelector (no namespaceSelector), so "from" means
+# "pods with tier=frontend IN THIS NAMESPACE."
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  labels:
+    course.lab: "08"
+spec:
+  podSelector:
+    matchLabels:
+      tier: backend          # this policy governs INGRESS to backend pods
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: frontend # only the frontend tier may dial in
+      ports:
+        - protocol: TCP
+          port: 8080

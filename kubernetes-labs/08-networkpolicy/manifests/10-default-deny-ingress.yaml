@@ -1,0 +1,17 @@
+# DEFAULT-DENY INGRESS for the whole namespace.
+# An empty podSelector ({}) selects EVERY pod in the namespace. With policyTypes:
+# [Ingress] and no ingress rules, every selected pod flips to default-deny for
+# INGRESS. Egress is untouched (pods can still initiate outbound; replies to their
+# own outbound connections return because policy is connection-tracked, not per-packet
+# symmetric -- but UNSOLICITED inbound is now dropped).
+# Effect: ALL inter-pod traffic into these pods breaks until an allow-list re-opens it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  labels:
+    course.lab: "08"
+spec:
+  podSelector: {}        # {} = all pods in this namespace
+  policyTypes:
+    - Ingress
