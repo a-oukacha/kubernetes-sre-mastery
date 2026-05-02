@@ -1,0 +1,24 @@
+# Consumer that binds the Retain PVC (triggers provisioning) and writes a marker.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: retain-writer
+  labels:
+    app.kubernetes.io/name: retain-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: data-retain
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "echo 'precious data' > /data/keep.txt; sync; sleep 86400"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 64Mi }

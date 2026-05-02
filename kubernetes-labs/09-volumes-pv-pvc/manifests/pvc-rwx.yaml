@@ -1,0 +1,20 @@
+# RWX claim — ReadWriteMany — many pods on many nodes mount read-write at once.
+# COST + AVAILABILITY: RWX is a property of the BACKEND, not Kubernetes.
+#   EKS: requires the EFS StorageClass (EFS filesystem is billed).
+#   OVH: NO native RWX -> needs nfs-subdir-external-provisioner or OVH NAS-HA.
+# Set storageClassName to your RWX class before applying.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-rwx
+  labels:
+    app.kubernetes.io/name: rwx-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  accessModes:
+    - ReadWriteMany          # RWX: many nodes mount read-write simultaneously
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: efs-rwx  # EKS EFS class; OVH: your nfs/NAS-HA class. EDIT ME.

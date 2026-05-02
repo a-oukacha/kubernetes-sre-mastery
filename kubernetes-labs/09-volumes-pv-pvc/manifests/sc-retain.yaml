@@ -1,0 +1,21 @@
+# A StorageClass whose reclaimPolicy is Retain (default for dynamic SCs is Delete).
+# When a PVC bound here is deleted, the PV survives as "Released" and the backing
+# disk is NOT deleted — data is recoverable. Contrast this with the DEFAULT SC,
+# which is reclaimPolicy: Delete (deletes the PV AND the cloud disk = data loss).
+#
+# provisioner MUST match your cluster's CSI driver. Pick the line for your cloud:
+#   EKS:  ebs.csi.aws.com
+#   OVH:  cinder.csi.openstack.org
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: lab09-retain
+  labels:
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+provisioner: ebs.csi.aws.com          # EDIT ME: cinder.csi.openstack.org on OVH
+reclaimPolicy: Retain                  # the whole point of this contrast
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: gp3                            # EDIT/REMOVE for OVH (Cinder uses different params)

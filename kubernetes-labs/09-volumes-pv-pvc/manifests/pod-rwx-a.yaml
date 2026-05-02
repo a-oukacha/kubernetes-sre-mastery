@@ -1,0 +1,30 @@
+# RWX consumer A. Writes its own file into the shared volume every 3s.
+# Pair with pod-rwx-b.yaml; each pod sees the OTHER's writes (same networked FS).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rwx-a
+  labels:
+    app.kubernetes.io/name: rwx-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  volumes:
+    - name: shared
+      persistentVolumeClaim:
+        claimName: shared-rwx
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c"]
+      args:
+        - >
+          while true; do
+            echo "from rwx-a @ $(date -u +%T)" > /shared/from-a.txt; sleep 3;
+          done
+      volumeMounts:
+        - name: shared
+          mountPath: /shared
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 64Mi }

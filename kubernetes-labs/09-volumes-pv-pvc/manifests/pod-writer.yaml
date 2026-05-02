@@ -1,0 +1,30 @@
+# First consumer of the RWO PVC. Mounting it triggers binding (WaitForFirstConsumer)
+# and dynamic provisioning of a real cloud disk. Writes one durable file, then sleeps.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-writer
+  labels:
+    app.kubernetes.io/name: pvc-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: data-rwo
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c"]
+      args:
+        - >
+          echo "persisted by data-writer @ $(date -u)" > /data/durable.txt;
+          sync;
+          echo "wrote /data/durable.txt"; sleep 86400
+      volumeMounts:
+        - name: data
+          mountPath: /data
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 64Mi }

@@ -1,0 +1,25 @@
+# A DIFFERENT pod that re-mounts the SAME PVC after data-writer is deleted.
+# It does not write — it proves the file survived the first pod's death.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-reader
+  labels:
+    app.kubernetes.io/name: pvc-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: data-rwo          # SAME claim as data-writer
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "cat /data/durable.txt; sleep 86400"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 64Mi }

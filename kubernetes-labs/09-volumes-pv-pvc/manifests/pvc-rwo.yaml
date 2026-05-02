@@ -1,0 +1,20 @@
+# A claim for 1Gi of RWO storage from the cluster's DEFAULT StorageClass.
+# storageClassName is intentionally OMITTED -> uses the default SC.
+#   EKS: gp3 (EBS CSI)   OVH: set default to csi-cinder-high-speed (see notes)
+# If the default SC is WaitForFirstConsumer, this PVC stays Pending until a pod
+# mounts it — that is the point of checkpoint (2).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-rwo
+  labels:
+    app.kubernetes.io/name: pvc-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  accessModes:
+    - ReadWriteOnce          # RWO: one node may mount read-write at a time
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: <default>   # left out on purpose -> default SC

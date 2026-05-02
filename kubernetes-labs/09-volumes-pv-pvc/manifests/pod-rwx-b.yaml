@@ -1,0 +1,31 @@
+# RWX consumer B. Writes from-b.txt and reads from-a.txt to prove both directions.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rwx-b
+  labels:
+    app.kubernetes.io/name: rwx-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  volumes:
+    - name: shared
+      persistentVolumeClaim:
+        claimName: shared-rwx
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c"]
+      args:
+        - >
+          while true; do
+            echo "from rwx-b @ $(date -u +%T)" > /shared/from-b.txt;
+            echo "--- b sees: ---"; cat /shared/from-a.txt 2>/dev/null;
+            sleep 3;
+          done
+      volumeMounts:
+        - name: shared
+          mountPath: /shared
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 64Mi }

@@ -1,0 +1,17 @@
+# A small RWO claim bound to the Retain StorageClass, used ONLY in Break it.
+# Keep it small (1Gi) — it provisions a real, billed cloud disk.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-retain
+  labels:
+    app.kubernetes.io/name: retain-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: lab09-retain

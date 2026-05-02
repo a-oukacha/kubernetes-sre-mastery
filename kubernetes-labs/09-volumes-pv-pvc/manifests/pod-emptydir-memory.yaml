@@ -1,0 +1,27 @@
+# emptyDir backed by RAM (tmpfs) instead of node disk: medium: Memory.
+# Fast, counts against the container's memory limit, vanishes on pod death.
+# Used in AI/ML for KV-cache / scratch that must be fast and is fine to lose.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: emptydir-memory
+  labels:
+    app.kubernetes.io/name: emptydir-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  volumes:
+    - name: ram-scratch
+      emptyDir:
+        medium: Memory        # tmpfs — backed by RAM, not the node's disk
+        sizeLimit: 32Mi
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "echo 'in RAM' > /cache/x; sleep 86400"]
+      volumeMounts:
+        - name: ram-scratch
+          mountPath: /cache
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 64Mi }   # tmpfs usage counts here

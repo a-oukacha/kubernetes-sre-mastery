@@ -1,0 +1,43 @@
+# Two containers in ONE pod sharing a single emptyDir volume.
+# writer creates a file; reader tails it. The volume lives and dies WITH the pod.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: emptydir-share
+  labels:
+    app.kubernetes.io/name: emptydir-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "09"
+spec:
+  # The shared scratch volume. No backing PV, no cloud disk — node-local, ephemeral.
+  volumes:
+    - name: scratch
+      emptyDir: {}
+  containers:
+    # writer: append a timestamped line every 2s into the shared volume.
+    - name: writer
+      image: busybox:1.36
+      command: ["sh", "-c"]
+      args:
+        - >
+          i=0;
+          while true; do
+            echo "line $i from writer @ $(date -u +%T)" >> /data/shared.log;
+            i=$((i+1)); sleep 2;
+          done
+      volumeMounts:
+        - name: scratch
+          mountPath: /data
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+    # reader: a DIFFERENT container that sees the SAME file via the same volume.
+    - name: reader
+      image: busybox:1.36
+      command: ["sh", "-c", "tail -F /data/shared.log"]
+      volumeMounts:
+        - name: scratch
+          mountPath: /data
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
