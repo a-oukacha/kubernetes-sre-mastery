@@ -1,0 +1,58 @@
+# CONTRAST: the SAME app as a Deployment, to make the StatefulSet's guarantees
+# visible by their ABSENCE. Used only in "Break it" to show the difference.
+#
+# A Deployment's pods get RANDOM name suffixes (kvstore-deploy-<hash>-<rand>), and
+# each replica mounts the SAME single shared PVC OR (here) an emptyDir that is wiped
+# on every pod replacement. Delete a pod and:
+#   - the replacement has a DIFFERENT name (no stable identity)
+#   - with emptyDir, its data starts EMPTY (no stable per-pod storage)
+# That is exactly what a StatefulSet fixes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kvstore-deploy
+  labels:
+    app.kubernetes.io/name: kvstore-deploy
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "10"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kvstore-deploy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kvstore-deploy
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "10"
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          # Stamp identity into an EPHEMERAL emptyDir — wiped on every pod replacement.
+          command: ["sh", "-c"]
+          args:
+            - |
+              if [ ! -f /data/identity.txt ]; then
+                echo "I am $HOSTNAME, first booted $(date -u)" > /data/identity.txt
+              fi
+              echo "identity (ephemeral): $(cat /data/identity.txt)"
+              exec redis-server --dir /data
+          ports:
+            - name: data
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}        # <-- NOT persistent: gone when the pod is replaced

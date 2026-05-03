@@ -1,0 +1,94 @@
+# StatefulSet: 3 replicas of a real stateful app (redis), each with its OWN
+# persistent disk via volumeClaimTemplates. This file teaches the four guarantees
+# a StatefulSet gives that a Deployment does NOT:
+#   1. Stable, ordinal pod NAMES:      kvstore-0, kvstore-1, kvstore-2
+#   2. Stable per-pod DNS (via the headless Service `serviceName: kvstore`):
+#        kvstore-0.kvstore.lab-10-statefulsets.svc.cluster.local
+#   3. Stable per-pod STORAGE: one PVC per ordinal, RE-ATTACHED on reschedule.
+#   4. Ordered, at-most-one lifecycle (0->1->2 up, 2->1->0 down).
+#
+# COST GUARD: volumeClaimTemplates provisions ONE real cloud disk PER REPLICA
+# (3 replicas = 3 billed disks here). These PVCs are NOT auto-deleted when you
+# scale down OR when you delete the StatefulSet — Cleanup deletes them explicitly.
+#
+# Each pod writes its own identity to its PVC on first boot (identity.txt) so you
+# can PROVE that kvstore-1 always re-attaches the SAME disk with the SAME data.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kvstore
+  labels:
+    app.kubernetes.io/name: kvstore
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "10"
+spec:
+  serviceName: kvstore          # <-- MUST match the headless Service name (DNS)
+  replicas: 3
+  podManagementPolicy: OrderedReady   # default: bring up 0, wait Ready, then 1, then 2
+                                      # (set to Parallel to start/stop all at once)
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kvstore
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kvstore
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "10"
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          # On first boot, stamp this pod's stable identity into its OWN volume.
+          # If identity.txt already exists, we re-attached our original disk — keep it.
+          # Then run redis with its data dir on the same persistent volume.
+          command: ["sh", "-c"]
+          args:
+            - |
+              if [ ! -f /data/identity.txt ]; then
+                echo "I am $HOSTNAME, first booted $(date -u)" > /data/identity.txt
+              fi
+              echo "identity on disk: $(cat /data/identity.txt)"
+              exec redis-server --appendonly yes --dir /data
+          ports:
+            - name: data
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data            # <-- name MUST match the volumeClaimTemplate below
+              mountPath: /data
+  # ONE PVC is created PER ORDINAL from this template:
+  #   data-kvstore-0, data-kvstore-1, data-kvstore-2
+  # storageClassName omitted -> the cluster's DEFAULT RWO StorageClass
+  #   (EKS: gp3 / OVH: csi-cinder-high-speed). See the EKS/OVH notes in lab.md.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: kvstore
+          app.kubernetes.io/part-of: k8s-sre-course
+          course.lab: "10"
+      spec:
+        accessModes: ["ReadWriteOnce"]    # RWO: one node mounts each disk at a time
+        resources:
+          requests:
+            storage: 1Gi
+        # storageClassName: <default>     # left out on purpose -> default SC

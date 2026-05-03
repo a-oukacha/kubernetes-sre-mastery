@@ -1,0 +1,26 @@
+# Headless Service (clusterIP: None) — REQUIRED by the StatefulSet below.
+# A StatefulSet's `serviceName` MUST point at a headless Service: it is what
+# creates the per-pod stable DNS A records:
+#   kvstore-0.kvstore.lab-10-statefulsets.svc.cluster.local
+#   kvstore-1.kvstore.lab-10-statefulsets.svc.cluster.local
+#   ...
+# No VIP, no kube-proxy load balancing — DNS returns each READY pod's own IP,
+# and each ordinal also gets its own stable name (lab 06 §5 is the same model).
+apiVersion: v1
+kind: Service
+metadata:
+  name: kvstore
+  labels:
+    app.kubernetes.io/name: kvstore
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "10"
+spec:
+  clusterIP: None          # <-- headless: no VIP; enables per-pod DNS
+  publishNotReadyAddresses: true   # publish A records even before Ready, so
+                                   # pods can discover peers during bootstrap
+  selector:
+    app.kubernetes.io/name: kvstore
+  ports:
+    - name: data
+      port: 6379
+      targetPort: data

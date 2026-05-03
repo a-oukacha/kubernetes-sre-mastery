@@ -1,0 +1,88 @@
+# Partitioned rolling-update VARIANT of the same StatefulSet.
+# Apply this OVER the running `statefulset.yaml` (same name `kvstore`) to demo a
+# CANARY rollout on the highest ordinal first.
+#
+# updateStrategy.rollingUpdate.partition: 2 means:
+#   "Only pods with ordinal >= 2 are updated; ordinals 0 and 1 stay on the OLD spec."
+# So a spec change here rolls out to kvstore-2 ONLY. Lower the partition (1, then 0)
+# to progressively roll the change down to kvstore-1, then kvstore-0.
+#
+# The change we make to trigger an update: a new env var REDIS_BUILD=canary
+# (visible via `kubectl describe pod` / the pod's env), pinned image unchanged.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kvstore
+  labels:
+    app.kubernetes.io/name: kvstore
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "10"
+spec:
+  serviceName: kvstore
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 2            # <-- only ordinal >= 2 (i.e. kvstore-2) updates
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kvstore
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kvstore
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "10"
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_BUILD      # <-- the "new" spec; presence proves who updated
+              value: "canary"
+          command: ["sh", "-c"]
+          args:
+            - |
+              if [ ! -f /data/identity.txt ]; then
+                echo "I am $HOSTNAME, first booted $(date -u)" > /data/identity.txt
+              fi
+              echo "identity on disk: $(cat /data/identity.txt) build=$REDIS_BUILD"
+              exec redis-server --appendonly yes --dir /data
+          ports:
+            - name: data
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: kvstore
+          app.kubernetes.io/part-of: k8s-sre-course
+          course.lab: "10"
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
