@@ -1,0 +1,44 @@
+# ServiceAccount + Role + RoleBinding so the leader-election pods may
+# read and write a Lease in coordination.k8s.io. This is the minimum RBAC a
+# lease-based leader election needs. (RBAC is covered in depth in lab 19;
+# here we only grant exactly what the lease contention loop calls.)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: leader-elector
+  labels:
+    app.kubernetes.io/name: leader-elector
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "11"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: leader-elector
+  labels:
+    app.kubernetes.io/name: leader-elector
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "11"
+rules:
+  # The contention loop creates the Lease on first run, then get/update to
+  # acquire and renew it. list/watch are not strictly required but make the
+  # loop robust to transient read errors.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: leader-elector
+  labels:
+    app.kubernetes.io/name: leader-elector
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "11"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: leader-elector
+subjects:
+  - kind: ServiceAccount
+    name: leader-elector

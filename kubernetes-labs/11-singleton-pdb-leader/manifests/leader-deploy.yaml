@@ -1,0 +1,135 @@
+# The leader-election demo. Three identical pods (bitnami/kubectl) all contend
+# for a single Lease named "demo-singleton". Whoever holds it logs "I AM THE
+# LEADER" and renews it; the others log that they are standing by. If the holder
+# dies and stops renewing, the Lease lapses after LEASE_DURATION seconds and one
+# of the standbys takes over. This is exactly how kube-controller-manager and
+# kube-scheduler run active-passive HA.
+#
+# The contention logic lives in a ConfigMap-mounted shell script so you can read
+# it. It is intentionally simple (optimistic concurrency on resourceVersion via
+# `kubectl ... --resource-version`), not production-grade — but it demonstrates
+# the real mechanism: acquire, renew before expiry, fail over after lapse.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: leader-script
+  labels:
+    app.kubernetes.io/name: leader-elector
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "11"
+data:
+  elect.sh: |
+    #!/bin/bash
+    # ---- knobs -------------------------------------------------------------
+    LEASE=demo-singleton
+    NS="${POD_NAMESPACE}"
+    ID="${POD_NAME}"               # this pod's identity (the holderIdentity)
+    LEASE_DURATION=15              # seconds a lease is valid before it may be stolen
+    RENEW_INTERVAL=5               # how often the holder renews
+    # -----------------------------------------------------------------------
+    now() { date -u +%Y-%m-%dT%H:%M:%S.000000Z; }
+
+    # Create the Lease once if it does not exist. Concurrent creates: only one
+    # wins, the losers get AlreadyExists and carry on — that is fine.
+    kubectl get lease "$LEASE" -n "$NS" >/dev/null 2>&1 || \
+      kubectl create -n "$NS" -f - >/dev/null 2>&1 <<EOF
+    apiVersion: coordination.k8s.io/v1
+    kind: Lease
+    metadata:
+      name: ${LEASE}
+      labels:
+        course.lab: "11"
+    spec:
+      leaseDurationSeconds: ${LEASE_DURATION}
+    EOF
+
+    echo "[$(now)] $ID: candidate started, contending for lease/$LEASE"
+    while true; do
+      # Read current lease state.
+      HOLDER=$(kubectl get lease "$LEASE" -n "$NS" -o jsonpath='{.spec.holderIdentity}' 2>/dev/null)
+      RENEW=$(kubectl get lease "$LEASE" -n "$NS" -o jsonpath='{.spec.renewTime}' 2>/dev/null)
+      RV=$(kubectl get lease "$LEASE" -n "$NS" -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null)
+
+      # Has the lease lapsed? (no holder, or renewTime older than LEASE_DURATION)
+      EXPIRED=true
+      if [ -n "$RENEW" ]; then
+        AGE=$(( $(date -u +%s) - $(date -u -d "$RENEW" +%s 2>/dev/null || echo 0) ))
+        [ "$AGE" -lt "$LEASE_DURATION" ] && EXPIRED=false
+      fi
+
+      if [ "$HOLDER" = "$ID" ]; then
+        # I am the leader: renew (CAS on resourceVersion so a stale write fails).
+        if kubectl patch lease "$LEASE" -n "$NS" --type=merge \
+             --resource-version="$RV" \
+             -p "{\"spec\":{\"holderIdentity\":\"$ID\",\"renewTime\":\"$(now)\",\"leaseDurationSeconds\":$LEASE_DURATION}}" \
+             >/dev/null 2>&1; then
+          echo "[$(now)] $ID: I AM THE LEADER (renewed lease)"
+        else
+          echo "[$(now)] $ID: lost the race to renew, will re-read"
+        fi
+      elif [ "$EXPIRED" = "true" ]; then
+        # Lease is free or lapsed: try to grab it (CAS on resourceVersion).
+        if kubectl patch lease "$LEASE" -n "$NS" --type=merge \
+             --resource-version="$RV" \
+             -p "{\"spec\":{\"holderIdentity\":\"$ID\",\"renewTime\":\"$(now)\",\"leaseDurationSeconds\":$LEASE_DURATION}}" \
+             >/dev/null 2>&1; then
+          echo "[$(now)] $ID: ACQUIRED the lease -> I AM THE LEADER"
+        else
+          echo "[$(now)] $ID: tried to acquire but another candidate won, standing by"
+        fi
+      else
+        echo "[$(now)] $ID: standing by (current leader is '$HOLDER')"
+      fi
+      sleep "$RENEW_INTERVAL"
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leader-elector
+  labels:
+    app.kubernetes.io/name: leader-elector
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "11"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: leader-elector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: leader-elector
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "11"
+    spec:
+      serviceAccountName: leader-elector
+      containers:
+        - name: elector
+          image: bitnami/kubectl:1.30
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/scripts/elect.sh"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: script
+          configMap:
+            name: leader-script
+            defaultMode: 0755

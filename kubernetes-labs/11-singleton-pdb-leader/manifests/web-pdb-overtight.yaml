@@ -1,0 +1,20 @@
+# BREAK-IT: an over-constrained PDB. minAvailable: 100% (== all replicas) means
+# the eviction API may NEVER evict a single web pod: doing so would drop below
+# 100% available. `kubectl drain` on a node holding a web pod will therefore
+# hang forever, printing "Cannot evict pod ... would violate the pod's
+# disruption budget". This is a top real-world cause of stuck cluster upgrades.
+# Apply this over web-pdb.yaml (same name -> it replaces it), reproduce the
+# hang, then re-apply web-pdb.yaml to relax it.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "11"
+spec:
+  minAvailable: 100%
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web

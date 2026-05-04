@@ -1,0 +1,19 @@
+# A sane PodDisruptionBudget for the 3-replica web Deployment.
+# minAvailable: 2 means the eviction API (used by `kubectl drain`, the cluster
+# autoscaler, and managed node-group upgrades) will allow AT MOST one web pod
+# to be voluntarily evicted at a time, and only once a replacement is Ready.
+# A PDB selects pods by label, independently of any Deployment — match the web
+# pods' selector exactly.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "11"
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
