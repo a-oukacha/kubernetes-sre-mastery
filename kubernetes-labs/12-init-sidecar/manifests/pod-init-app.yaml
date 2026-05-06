@@ -1,0 +1,63 @@
+# Step 1 reference: an INIT CONTAINER seeds content into a shared emptyDir,
+# then the APP container serves it. This is the "ordered, run-to-completion"
+# guarantee in its purest form.
+#
+# WHAT TO NOTICE:
+#   - `initContainers` run to completion, in order, BEFORE any app container
+#     starts. The app (nginx) does not exist until the init exits 0.
+#   - Both containers mount the SAME emptyDir (`web`) at the same path.
+#     emptyDir is created empty when the pod is scheduled and lives as long as
+#     the pod; both containers see each other's writes.
+#   - nginx serves files from its docroot /usr/share/nginx/html; we mount the
+#     SAME shared volume there, so whatever the init wrote to /work/index.html
+#     is exactly what `wget localhost/index.html` returns.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-app
+  labels:
+    app.kubernetes.io/name: init-sidecar-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "12"
+spec:
+  volumes:
+    - name: web
+      emptyDir: {}
+  # INIT: runs first, to completion. Seeds index.html, then exits 0.
+  initContainers:
+    - name: seed
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "init: seeding shared volume"
+          echo "<h1>served from the init-seeded volume</h1>" > /work/index.html
+          echo "seeded at $(date -u +%FT%TZ)" >> /work/index.html
+          echo "init: done"
+      volumeMounts:
+        - name: web
+          mountPath: /work
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 32Mi
+  # APP: only starts AFTER every init container has exited 0.
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      imagePullPolicy: IfNotPresent
+      ports:
+        - name: http
+          containerPort: 80
+      volumeMounts:
+        - name: web
+          mountPath: /usr/share/nginx/html
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          memory: 64Mi

@@ -1,0 +1,60 @@
+# Break-it reference: the SAME pod as pod-init-app.yaml, except the init
+# container EXITS 1. Because the app cannot start until every init container
+# succeeds, the app container is NEVER created. The pod sits in
+# Init:Error -> Init:CrashLoopBackOff forever.
+#
+# WHAT TO NOTICE:
+#   - `kubectl get pod` shows STATUS Init:Error / Init:CrashLoopBackOff and
+#     READY 0/1 (the app container slot is never filled).
+#   - `kubectl get pod -o jsonpath` over containerStatuses shows the app
+#     container does not exist yet -- only initContainerStatuses report.
+#   - This is the ordering guarantee made visible: a failing setup step stops
+#     the whole pod rather than letting a half-configured app come up.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-broken
+  labels:
+    app.kubernetes.io/name: init-sidecar-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "12"
+spec:
+  volumes:
+    - name: web
+      emptyDir: {}
+  initContainers:
+    - name: seed
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "init: trying to seed, but the upstream is unreachable"
+          # Simulate a setup step that fails (e.g. a download that 404s).
+          echo "init: FAILED" >&2
+          exit 1
+      volumeMounts:
+        - name: web
+          mountPath: /work
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 32Mi
+  containers:
+    - name: app
+      image: nginx:1.27-alpine
+      imagePullPolicy: IfNotPresent
+      ports:
+        - name: http
+          containerPort: 80
+      volumeMounts:
+        - name: web
+          mountPath: /usr/share/nginx/html
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          memory: 64Mi

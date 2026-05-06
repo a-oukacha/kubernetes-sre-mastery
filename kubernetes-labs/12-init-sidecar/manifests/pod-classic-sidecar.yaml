@@ -1,0 +1,89 @@
+# Step 4 reference: a CLASSIC sidecar. The refresher is an ordinary extra
+# entry in `containers[]`, so it runs CONCURRENTLY with the app and has NO
+# lifecycle ordering relative to it.
+#
+# COMPOSITION:
+#   - init `seed`        -> writes the first index.html (ordered, run-to-completion)
+#   - container `app`    -> nginx serving its docroot (the shared volume)
+#   - container `refresh`-> classic sidecar: rewrites index.html every 5s
+#
+# WHAT TO NOTICE (vs the native version):
+#   - All entries in containers[] start TOGETHER. There is no guarantee the
+#     sidecar is up before the app, or that it lingers after the app.
+#   - The pod is "Running" / READY 2/2 only when BOTH app containers are up.
+#   - Killing the app's process inside this pod: with the default
+#     restartPolicy: Always, the kubelet restarts the failed container in
+#     place; the sidecar keeps running throughout.
+#   - A classic sidecar is counted in pod readiness, so if it crashes the pod
+#     can flap to not-ready even though the app is fine. This is the classic
+#     "the sidecar shouldn't gate my app but it does" pain.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: classic-sidecar
+  labels:
+    app.kubernetes.io/name: init-sidecar-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "12"
+spec:
+  volumes:
+    - name: web
+      emptyDir: {}
+  initContainers:
+    - name: seed
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "<h1>served from the init-seeded volume</h1>" > /work/index.html
+          echo "seeded at $(date -u +%FT%TZ)" >> /work/index.html
+      volumeMounts:
+        - name: web
+          mountPath: /work
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 32Mi
+  containers:
+    # APP: serves whatever is in /work.
+    - name: app
+      image: nginx:1.27-alpine
+      imagePullPolicy: IfNotPresent
+      ports:
+        - name: http
+          containerPort: 80
+      volumeMounts:
+        - name: web
+          mountPath: /usr/share/nginx/html
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
+    # CLASSIC SIDECAR: a plain containers[] entry. Refreshes the content the
+    # app serves every 5s, sharing the same emptyDir. No ordering vs the app.
+    - name: refresh
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          while true; do
+            echo "<h1>refreshed by the sidecar</h1>" > /work/index.html
+            echo "refreshed at $(date -u +%FT%TZ)" >> /work/index.html
+            echo "sidecar: refreshed /work/index.html"
+            sleep 5
+          done
+      volumeMounts:
+        - name: web
+          mountPath: /work
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 32Mi

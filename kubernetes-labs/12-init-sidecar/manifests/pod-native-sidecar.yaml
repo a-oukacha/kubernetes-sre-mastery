@@ -1,0 +1,95 @@
+# Step 5 reference: a NATIVE sidecar (GA in Kubernetes 1.29). The refresher is
+# moved into `initContainers[]` and given `restartPolicy: Always`. That single
+# field turns an init container into a sidecar with real lifecycle ordering.
+#
+# COMPOSITION:
+#   - init `seed`     -> ordinary init: writes the first index.html, exits 0
+#   - init `refresh`  -> NATIVE sidecar (restartPolicy: Always): starts before
+#                        the app, stays running for the pod's life, refreshes
+#                        index.html every 5s
+#   - container `app` -> nginx serving its docroot (the shared volume)
+#
+# WHAT TO NOTICE (vs the classic version):
+#   - ORDERING: native sidecars start in initContainers order. `seed` runs to
+#     completion, then `refresh` starts and -- because it has
+#     restartPolicy: Always -- Kubernetes does NOT wait for it to exit. As soon
+#     as `refresh` is started, the app container is allowed to start. So the
+#     sidecar is guaranteed UP BEFORE the app.
+#   - LIFETIME: the sidecar runs for the whole pod and is terminated AFTER the
+#     app containers on pod shutdown (drain-after semantics).
+#   - RESTART: it restarts independently if it crashes, without restarting the app.
+#   - This is exactly what a mesh proxy / log shipper needs and what classic
+#     sidecars could never guarantee before 1.29.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: native-sidecar
+  labels:
+    app.kubernetes.io/name: init-sidecar-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "12"
+spec:
+  volumes:
+    - name: web
+      emptyDir: {}
+  initContainers:
+    # ORDINARY INIT: runs to completion before anything else.
+    - name: seed
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "<h1>served from the init-seeded volume</h1>" > /work/index.html
+          echo "seeded at $(date -u +%FT%TZ)" >> /work/index.html
+      volumeMounts:
+        - name: web
+          mountPath: /work
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 32Mi
+    # NATIVE SIDECAR: an initContainer with restartPolicy: Always. Starts
+    # before the app, then the app is allowed to start while this keeps running.
+    - name: refresh
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      restartPolicy: Always          # <-- the one field that makes it a sidecar
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "native sidecar: started BEFORE the app"
+          while true; do
+            echo "<h1>refreshed by the native sidecar</h1>" > /work/index.html
+            echo "refreshed at $(date -u +%FT%TZ)" >> /work/index.html
+            echo "native sidecar: refreshed /work/index.html"
+            sleep 5
+          done
+      volumeMounts:
+        - name: web
+          mountPath: /work
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 32Mi
+  containers:
+    # APP: starts only after `seed` completed AND `refresh` has started.
+    - name: app
+      image: nginx:1.27-alpine
+      imagePullPolicy: IfNotPresent
+      ports:
+        - name: http
+          containerPort: 80
+      volumeMounts:
+        - name: web
+          mountPath: /usr/share/nginx/html
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
