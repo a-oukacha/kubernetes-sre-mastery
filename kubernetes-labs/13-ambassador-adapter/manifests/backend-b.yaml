@@ -1,0 +1,57 @@
+# Backend-B: a SECOND real redis, identical to A, reachable as `backend-b:6379`.
+# This is the topology change we will reroute to WITHOUT touching the app.
+#
+# WHAT TO NOTICE:
+#   - Different Service name, different pods, different data. Initially EMPTY.
+#   - After we re-point the ambassador at it, the app's writes land here instead
+#     and A goes quiet -- the app code is byte-for-byte unchanged.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-b
+  labels:
+    app.kubernetes.io/name: backend-b
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend-b
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend-b
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "13"
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          args: ["--save", "", "--appendonly", "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-b
+  labels:
+    app.kubernetes.io/name: backend-b
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+spec:
+  selector:
+    app.kubernetes.io/name: backend-b
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

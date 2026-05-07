@@ -1,0 +1,74 @@
+# THE ADAPTER PATTERN, in one pod:
+#   - `redis`    : a normal redis. It emits its native stats only via the
+#                  RESP `INFO` command -- NOT in Prometheus format. The platform
+#                  cannot scrape `INFO`.
+#   - `exporter` : the ADAPTER sidecar. It connects to localhost:6379, runs
+#                  `INFO` periodically, and TRANSLATES the result into the
+#                  standard Prometheus exposition format on :9121/metrics.
+#
+# WHAT TO NOTICE:
+#   - The redis container is unchanged and un-instrumented. The adapter does the
+#     translation OUTSIDE the app, so the same Prometheus scrape config that
+#     works for a Go or Java app works here too.
+#   - `wget localhost:9121/metrics` returns "# HELP / # TYPE / metric value"
+#     lines -- a uniform interface the whole fleet shares.
+#   - This is a TRANSLATION layer, not a computation layer: it reshapes INFO,
+#     it does not aggregate or do heavy work.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redis-with-adapter
+  labels:
+    app.kubernetes.io/name: redis-with-adapter
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+spec:
+  containers:
+    # ---- THE APP: native stats only (RESP INFO). ----
+    - name: redis
+      image: redis:7.2-alpine
+      imagePullPolicy: IfNotPresent
+      args: ["--save", "", "--appendonly", "no"]
+      ports:
+        - name: redis
+          containerPort: 6379
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
+    # ---- THE ADAPTER: INFO -> Prometheus /metrics on :9121. ----
+    - name: exporter
+      image: oliver006/redis_exporter:v1.62.0-alpine
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: REDIS_ADDR
+          value: "redis://localhost:6379"   # shared netns -> reaches the redis sibling
+      ports:
+        - name: metrics
+          containerPort: 9121
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
+---
+# Service so Prometheus (or a manual curl from another pod) can reach the
+# adapter's standardized /metrics endpoint by name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-with-adapter
+  labels:
+    app.kubernetes.io/name: redis-with-adapter
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+spec:
+  selector:
+    app.kubernetes.io/name: redis-with-adapter
+  ports:
+    - name: metrics
+      port: 9121
+      targetPort: metrics

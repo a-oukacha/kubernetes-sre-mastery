@@ -1,0 +1,37 @@
+# AMBASSADOR CONFIG -> backend-A.
+# A haproxy config that listens on localhost:6379 INSIDE the pod and forwards the
+# raw TCP (RESP) stream to the cluster Service `backend-a:6379`.
+#
+# WHAT TO NOTICE:
+#   - This is the ONLY place the real backend address `backend-a` appears.
+#     The app container never sees it; it only knows `localhost:6379`.
+#   - `mode tcp` -> haproxy is a dumb L4 pipe here; it does not speak RESP, it
+#     just shuttles bytes. That is enough to demonstrate the localhost contract.
+#   - To reroute, we swap ONLY this ConfigMap's `server` line to backend-b and
+#     restart the ambassador. The app manifest is untouched.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ambassador-config
+  labels:
+    app.kubernetes.io/name: ambassador
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+data:
+  haproxy.cfg: |
+    global
+      log stdout format raw local0
+      maxconn 256
+    defaults
+      log global
+      mode tcp
+      timeout connect 5s
+      timeout client  1m
+      timeout server  1m
+    # The app connects here. "localhost:6379" is the stable contract.
+    frontend redis_front
+      bind 127.0.0.1:6379
+      default_backend redis_back
+    # The ONLY topology knowledge in the whole pod lives on the next line.
+    backend redis_back
+      server target backend-a:6379 check

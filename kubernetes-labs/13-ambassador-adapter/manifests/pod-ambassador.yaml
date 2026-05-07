@@ -1,0 +1,70 @@
+# THE AMBASSADOR PATTERN, in one pod:
+#   - `app`        : a redis client that writes to localhost:6379 in a loop.
+#                    It is HARD-CODED to localhost and knows NOTHING about
+#                    backend-a / backend-b / Services / DNS. That is the point.
+#   - `ambassador` : haproxy listening on 127.0.0.1:6379, forwarding to whichever
+#                    backend its mounted config names. Same network namespace as
+#                    the app, so the app's "localhost" IS the ambassador.
+#
+# WHAT TO NOTICE:
+#   - Containers in a pod share one network namespace => `localhost` is shared.
+#     The app's localhost:6379 reaches the ambassador's bind on 127.0.0.1:6379.
+#   - The app spec contains the string "localhost" and nothing else network-y.
+#     Re-pointing the backend never touches this file.
+#   - The ambassador mounts the `ambassador-config` ConfigMap. Swapping that
+#     ConfigMap + restarting the pod is the whole reroute.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-ambassador
+  labels:
+    app.kubernetes.io/name: app-with-ambassador
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+spec:
+  volumes:
+    - name: ambassador-config
+      configMap:
+        name: ambassador-config
+  containers:
+    # ---- THE APP: topology-agnostic. Talks ONLY to localhost. ----
+    - name: app
+      image: redis:7.2-alpine
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          i=0
+          # Wait for the ambassador's local listener to come up.
+          until redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG; do
+            echo "app: waiting for localhost:6379 (the ambassador)..."; sleep 1
+          done
+          echo "app: connected to localhost:6379"
+          while true; do
+            i=$((i+1))
+            # Every write goes to localhost. The app has no idea which backend.
+            redis-cli -h 127.0.0.1 -p 6379 SET "app:msg:$i" "hello-$i" >/dev/null
+            redis-cli -h 127.0.0.1 -p 6379 INCR app:writes >/dev/null
+            echo "app: wrote app:msg:$i via localhost:6379"
+            sleep 2
+          done
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
+    # ---- THE AMBASSADOR: hides topology behind localhost:6379. ----
+    - name: ambassador
+      image: haproxy:2.9-alpine
+      imagePullPolicy: IfNotPresent
+      args: ["-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      volumeMounts:
+        - name: ambassador-config
+          mountPath: /usr/local/etc/haproxy
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          memory: 64Mi

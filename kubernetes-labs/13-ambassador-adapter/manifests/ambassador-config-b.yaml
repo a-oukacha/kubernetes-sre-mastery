@@ -1,0 +1,34 @@
+# AMBASSADOR CONFIG -> backend-B.
+# IDENTICAL to ambassador-config-a.yaml except the single `server target ...`
+# line now points at `backend-b:6379`. Same ConfigMap NAME (`ambassador-config`)
+# so `kubectl apply` overwrites the existing one in place.
+#
+# WHAT TO NOTICE:
+#   - This is the entire "topology change": one line of config.
+#   - After applying this and restarting the ambassador, the app's writes to
+#     localhost:6379 land in backend-B. The app was never edited or rebuilt.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ambassador-config
+  labels:
+    app.kubernetes.io/name: ambassador
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+data:
+  haproxy.cfg: |
+    global
+      log stdout format raw local0
+      maxconn 256
+    defaults
+      log global
+      mode tcp
+      timeout connect 5s
+      timeout client  1m
+      timeout server  1m
+    frontend redis_front
+      bind 127.0.0.1:6379
+      default_backend redis_back
+    # CHANGED: backend-a -> backend-b. This is the only difference.
+    backend redis_back
+      server target backend-b:6379 check

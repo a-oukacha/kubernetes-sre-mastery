@@ -1,0 +1,29 @@
+# OPTIONAL: only if kube-prometheus-stack is installed (cluster-setup section 2.8).
+# A ServiceMonitor is a Custom Resource the Prometheus Operator watches; it tells
+# Prometheus to scrape every Service matching the selector on its `metrics` port.
+#
+# WHAT TO NOTICE:
+#   - There is ONE scrape rule and it is generic ("scrape the metrics port of any
+#     service labelled like this"). Because the ADAPTER normalized the output to
+#     Prometheus format, this same rule works for redis, nginx, a Go app -- the
+#     whole polyglot fleet -- with no per-app config. That is the adapter payoff.
+#   - If you do NOT have the Prometheus Operator CRDs installed, `kubectl apply`
+#     of this file will fail with "no matches for kind ServiceMonitor". That is
+#     expected; skip it and use the manual curl in the lab's Verify instead.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis-with-adapter
+  labels:
+    app.kubernetes.io/name: redis-with-adapter
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+    release: kube-prometheus-stack   # match your stack's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-with-adapter
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics

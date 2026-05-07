@@ -1,0 +1,57 @@
+# Backend-A: a real redis the AMBASSADOR will route to FIRST.
+# It is reachable cluster-wide as the Service `backend-a:6379`.
+#
+# WHAT TO NOTICE:
+#   - This is an ORDINARY redis. It has no idea an ambassador exists; it just
+#     answers RESP on :6379. The app never names it directly.
+#   - Step 1 proves writes from the app land HERE (KEYS * shows them).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-a
+  labels:
+    app.kubernetes.io/name: backend-a
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend-a
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend-a
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "13"
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          args: ["--save", "", "--appendonly", "no"]   # in-memory only; this is a demo
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-a
+  labels:
+    app.kubernetes.io/name: backend-a
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "13"
+spec:
+  selector:
+    app.kubernetes.io/name: backend-a
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
