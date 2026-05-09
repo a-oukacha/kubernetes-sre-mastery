@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tolerated
+  labels:
+    app.kubernetes.io/name: tolerate-demo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "14"
+spec:
+  # A toleration lets this pod OPT IN to the tainted node. A toleration only
+  # removes the repulsion; it does NOT force the pod onto that node. Pair it
+  # with nodeAffinity/nodeSelector if you want to also PIN it there.
+  tolerations:
+    - key: course.dedicated
+      operator: Equal
+      value: gpu
+      effect: NoSchedule
+  # Pin it to the tainted node so we can prove the toleration let it land there.
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: course.dedicated
+                operator: In
+                values: ["gpu"]
+  containers:
+    - name: app
+      image: registry.k8s.io/e2e-test-images/agnhost:2.47
+      args: ["netexec", "--http-port=8080"]
+      ports:
+        - containerPort: 8080
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi

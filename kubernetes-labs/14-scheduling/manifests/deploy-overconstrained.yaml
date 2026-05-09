@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: overconstrained
+  labels:
+    app.kubernetes.io/name: overconstrained
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "14"
+spec:
+  # 9 replicas, REQUIRED one-per-node anti-affinity, on a 2-3 node cluster.
+  # The scheduler can place at most one replica per node; the rest have no
+  # eligible node and stay Pending / Unschedulable forever. This is the most
+  # common self-inflicted scheduling outage.
+  replicas: 9
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: overconstrained
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: overconstrained
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "14"
+    spec:
+      affinity:
+        podAntiAffinity:
+          # HARD spread: NO two replicas may share a node. Required = Pending if unmet.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: overconstrained
+      containers:
+        - name: app
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          args: ["netexec", "--http-port=8080"]
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
