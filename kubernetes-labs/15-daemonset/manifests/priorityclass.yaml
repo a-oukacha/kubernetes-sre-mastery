@@ -1,0 +1,12 @@
+# A PriorityClass so the node agent is not the first thing preempted under pressure.
+# Node-level infra (agents, CNI, CSI) typically runs at high priority.
+# NOTE: PriorityClass is cluster-scoped (no namespace). Cleanup deletes it explicitly.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: node-agent-critical
+  labels:
+    course.lab: "15"
+value: 1000000
+globalDefault: false
+description: "Priority for per-node observability agents (lab 15). Above app workloads, below system-critical."
