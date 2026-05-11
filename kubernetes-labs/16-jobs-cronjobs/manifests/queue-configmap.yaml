@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: work-items
+  labels:
+    app.kubernetes.io/name: work-queue
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "16"
+data:
+  # The "queue source": one work item per line. The manager reads this and
+  # creates one worker Job per item. Swap this for SQS/Kafka in lab 17.
+  items: |
+    invoice-1001
+    invoice-1002
+    invoice-1003
+    invoice-1004

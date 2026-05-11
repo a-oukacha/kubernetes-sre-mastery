@@ -1,0 +1,46 @@
+# The manager pod runs kubectl IN the cluster, so it needs an identity (SA)
+# and permission (Role) to create Jobs and read the ConfigMap. Least privilege:
+# only batch Jobs + the one ConfigMap kind, only in this namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: queue-manager
+  labels:
+    app.kubernetes.io/name: work-queue
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "16"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: queue-manager
+  labels:
+    app.kubernetes.io/name: work-queue
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "16"
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: queue-manager
+  labels:
+    app.kubernetes.io/name: work-queue
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "16"
+subjects:
+  - kind: ServiceAccount
+    name: queue-manager
+roleRef:
+  kind: Role
+  name: queue-manager
+  apiGroup: rbac.authorization.k8s.io
