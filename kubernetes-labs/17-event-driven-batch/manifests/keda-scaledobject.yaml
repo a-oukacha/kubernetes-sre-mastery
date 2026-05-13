@@ -1,0 +1,39 @@
+# OPTIONAL — event-driven scaling with KEDA. SKIP this file if KEDA is not
+# installed; the rest of the lab does not depend on it.
+#
+# Install KEDA (same Helm chart on EKS and OVH):
+#   helm repo add kedacore https://kedacore.github.io/charts && helm repo update
+#   helm install keda kedacore/keda -n keda --create-namespace --version 2.14.0
+#
+# This ScaledObject is the EVENT-DRIVEN pattern's control plane: it scales a
+# worker Deployment by QUEUE DEPTH (here: a RabbitMQ queue's message count),
+# NOT by CPU. Scale-to-zero (minReplicaCount: 0) is the headline feature -- no
+# idle workers (and, for GPU inference, no idle GPU bill) when the queue drains.
+#
+# It targets a Deployment named `queue-worker`. There is no broker in this lab,
+# so applying this without a reachable queue will leave the trigger in error --
+# that is expected; it is here to READ, not necessarily to run. Point `host` and
+# `queueName` at a real broker to see it scale.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: queue-worker-scaler
+  labels:
+    app.kubernetes.io/name: queue-worker-scaler
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  scaleTargetRef:
+    name: queue-worker          # the Deployment KEDA scales
+  pollingInterval: 15           # how often KEDA checks the queue (seconds)
+  cooldownPeriod: 60            # wait before scaling back to zero
+  minReplicaCount: 0            # scale-to-zero when the queue is empty
+  maxReplicaCount: 20           # ceiling = your backpressure / cost guard
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: auto
+        queueName: jobs
+        mode: QueueLength        # scale on number of messages waiting...
+        value: "5"               # ...add a replica per 5 queued messages
+        hostFromEnv: RABBITMQ_HOST

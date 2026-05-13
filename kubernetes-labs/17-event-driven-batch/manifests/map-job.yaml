@@ -1,0 +1,71 @@
+# MAP stage of a word-count. An INDEXED Job: completions=3, parallelism=3.
+# Each worker gets a unique JOB_COMPLETION_INDEX (0,1,2) = its SHARD number.
+# Each worker:
+#   1. reproduces ITS shard of the corpus (deterministic, so the answer is known),
+#   2. counts the words in that shard,
+#   3. writes the partial count to the SHARED PVC as part-<index>.txt.
+# No worker sees another's data. The BARRIER (reduce waits for all maps) is what
+# turns these independent partials into one correct answer.
+#
+# Known corpus (3 shards x 4 lines x 5 words) = 60 words total. The reduce must
+# print exactly 60 if the barrier and the partials are correct.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wordcount-map
+  labels:
+    app.kubernetes.io/name: wordcount-map
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  completionMode: Indexed     # gives each pod a stable JOB_COMPLETION_INDEX
+  completions: 3              # one completion per shard
+  parallelism: 3              # all three map workers run at once
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wordcount-map
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "17"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: mapper
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              IDX="${JOB_COMPLETION_INDEX}"
+              echo "mapper shard=$IDX on $HOSTNAME"
+              # Deterministic shard: 4 lines of 5 words each = 20 words per shard.
+              SHARD=/tmp/shard.txt
+              i=1
+              : > "$SHARD"
+              while [ "$i" -le 4 ]; do
+                echo "shard ${IDX} line ${i} alpha beta" >> "$SHARD"
+                i=$((i+1))
+              done
+              # MAP: count words in this shard only.
+              N=$(wc -w < "$SHARD")
+              # Write the partial to shared storage. Atomic-ish: write tmp then move.
+              mkdir -p /shared/partials
+              echo "$N" > "/shared/partials/.part-${IDX}.tmp"
+              mv "/shared/partials/.part-${IDX}.tmp" "/shared/partials/part-${IDX}.txt"
+              echo "shard $IDX wrote $N words -> /shared/partials/part-${IDX}.txt"
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+          resources:
+            requests:
+              cpu: 25m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+      volumes:
+        - name: shared
+          persistentVolumeClaim:
+            claimName: mapreduce-shared

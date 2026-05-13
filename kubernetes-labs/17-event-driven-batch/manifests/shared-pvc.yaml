@@ -1,0 +1,25 @@
+# Shared scratch for the COORDINATED BATCH (map -> shuffle -> reduce).
+# The map workers and the reduce worker are SEPARATE Jobs => separate pods,
+# possibly on different nodes. An emptyDir (per-pod) cannot cross them, so the
+# shuffle stage needs storage all pods can see at once: a ReadWriteMany PVC.
+#
+# COST + AVAILABILITY: RWX is a property of the BACKEND, not Kubernetes.
+#   EKS: requires the EFS StorageClass (EFS filesystem is BILLED).
+#   OVH: NO native RWX -> needs nfs-subdir-external-provisioner or OVH NAS-HA.
+# Set storageClassName to your RWX class before applying. Keep it at 1Gi and
+# delete it in Cleanup (see lab.md) or it keeps billing.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mapreduce-shared
+  labels:
+    app.kubernetes.io/name: mapreduce-shared
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  accessModes:
+    - ReadWriteMany          # all map pods + the reduce pod mount it at once
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: efs-rwx  # EKS EFS class; OVH: your nfs/NAS-HA class. EDIT ME.

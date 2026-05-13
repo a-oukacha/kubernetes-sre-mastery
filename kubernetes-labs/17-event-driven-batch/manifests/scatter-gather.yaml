@@ -1,0 +1,103 @@
+# The ROOT of the scatter/gather. Three busybox scripts mounted from a ConfigMap:
+#   seq.sh      - calls the 3 leaves ONE AFTER ANOTHER (latency = SUM of leaves)
+#   parallel.sh - fans out to all 3 leaves AT ONCE, then waits for all (gather)
+#                 (latency ~= the SLOWEST leaf == tail latency)
+#   timeout.sh  - parallel fan-out BUT each call is bounded by a per-leaf timeout
+#                 and missing leaves return a partial result (the Break-it fix)
+# The root is a Pod we keep alive with `sleep`, then `kubectl exec` each script.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scatter-scripts
+  labels:
+    app.kubernetes.io/name: scatter-root
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+data:
+  # SLOW_DELAY controls how long leaf-3 sleeps. Used by all three scripts.
+  SLOW_DELAY: "3"
+
+  seq.sh: |
+    #!/bin/sh
+    # SEQUENTIAL gather: each call blocks the next. Wall-clock ~= sum of all leaves.
+    set -e
+    START=$(date +%s)
+    echo "== sequential =="
+    wget -qO- http://leaf-1:8080/hostname        ; echo "  <- leaf-1"
+    wget -qO- http://leaf-2:8080/hostname        ; echo "  <- leaf-2"
+    wget -qO- "http://leaf-3:8080/delay/${SLOW_DELAY}" >/dev/null && echo "ok <- leaf-3 (slow)"
+    END=$(date +%s)
+    echo "WALL_CLOCK_SECONDS=$((END-START))"
+
+  parallel.sh: |
+    #!/bin/sh
+    # PARALLEL scatter/gather: launch all leaves at once (&), then `wait` (the barrier).
+    # Wall-clock ~= the SLOWEST leaf, NOT the sum. This is the win... and the trap:
+    # one slow leaf still dominates because the gather waits for ALL of them.
+    START=$(date +%s)
+    echo "== parallel (no timeout) =="
+    OUT=/tmp/sg; rm -rf "$OUT"; mkdir -p "$OUT"
+    ( wget -qO- http://leaf-1:8080/hostname                 > "$OUT/1" ) &
+    ( wget -qO- http://leaf-2:8080/hostname                 > "$OUT/2" ) &
+    ( wget -qO- "http://leaf-3:8080/delay/${SLOW_DELAY}"     > "$OUT/3" ) &
+    wait
+    echo "merged: $(ls "$OUT" | wc -l) leaf responses"
+    END=$(date +%s)
+    echo "WALL_CLOCK_SECONDS=$((END-START))"
+
+  timeout.sh: |
+    #!/bin/sh
+    # THE FIX: same parallel fan-out, but each leaf call is wrapped in `timeout`.
+    # If a leaf misses its budget we drop it and return a PARTIAL result instead
+    # of hanging forever. Total latency is now BOUNDED by the timeout, not the leaf.
+    BUDGET="${LEAF_TIMEOUT:-2}"
+    START=$(date +%s)
+    echo "== parallel (per-leaf timeout=${BUDGET}s) =="
+    OUT=/tmp/sgt; rm -rf "$OUT"; mkdir -p "$OUT"
+    ( timeout "$BUDGET" wget -qO- http://leaf-1:8080/hostname             > "$OUT/1" 2>/dev/null || echo MISS > "$OUT/1" ) &
+    ( timeout "$BUDGET" wget -qO- http://leaf-2:8080/hostname             > "$OUT/2" 2>/dev/null || echo MISS > "$OUT/2" ) &
+    ( timeout "$BUDGET" wget -qO- "http://leaf-3:8080/delay/${SLOW_DELAY}" > "$OUT/3" 2>/dev/null || echo MISS > "$OUT/3" ) &
+    wait
+    GOT=$(grep -L MISS "$OUT"/* 2>/dev/null | wc -l)
+    echo "merged: ${GOT}/3 leaves answered in time (others returned partial/MISS)"
+    END=$(date +%s)
+    echo "WALL_CLOCK_SECONDS=$((END-START))"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: scatter-root
+  labels:
+    app.kubernetes.io/name: scatter-root
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: root
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 86400"]   # stay alive; we drive it with exec
+      env:
+        - name: SLOW_DELAY
+          valueFrom:
+            configMapKeyRef:
+              name: scatter-scripts
+              key: SLOW_DELAY
+        - name: LEAF_TIMEOUT
+          value: "2"
+      volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+      resources:
+        requests:
+          cpu: 25m
+          memory: 16Mi
+        limits:
+          cpu: 100m
+          memory: 32Mi
+  volumes:
+    - name: scripts
+      configMap:
+        name: scatter-scripts
+        defaultMode: 0755

@@ -1,0 +1,156 @@
+# N leaf services for SCATTER/GATHER.
+# leaf-1 and leaf-2 are FAST shards (agnhost netexec, replies instantly).
+# leaf-3 is the SLOW shard: httpbin's /delay/<sec> handler holds the response.
+#   agnhost netexec has NO arbitrary-delay endpoint, so the slow leaf uses
+#   kennethreitz/httpbin, which exposes /delay/N (sleep N seconds, then 200).
+# This asymmetry is the whole point: the gather waits for the SLOWEST shard.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leaf-1
+  labels:
+    app.kubernetes.io/name: leaf-1
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: leaf-1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: leaf-1
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "17"
+    spec:
+      containers:
+        - name: leaf
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          args: ["netexec", "--http-port=8080"]
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leaf-1
+  labels:
+    app.kubernetes.io/name: leaf-1
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  selector:
+    app.kubernetes.io/name: leaf-1
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leaf-2
+  labels:
+    app.kubernetes.io/name: leaf-2
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: leaf-2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: leaf-2
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "17"
+    spec:
+      containers:
+        - name: leaf
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          args: ["netexec", "--http-port=8080"]
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leaf-2
+  labels:
+    app.kubernetes.io/name: leaf-2
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  selector:
+    app.kubernetes.io/name: leaf-2
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# The SLOW shard. httpbin /delay/N sleeps N seconds before replying 200.
+# Call it as http://leaf-3:8080/delay/3  -> ~3s response.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leaf-3
+  labels:
+    app.kubernetes.io/name: leaf-3
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: leaf-3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: leaf-3
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "17"
+    spec:
+      containers:
+        - name: leaf
+          # :latest is intentional here only because httpbin publishes no stable
+          # semver tag. Pin a digest in production (see tooling.md).
+          image: kennethreitz/httpbin:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leaf-3
+  labels:
+    app.kubernetes.io/name: leaf-3
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "17"
+spec:
+  selector:
+    app.kubernetes.io/name: leaf-3
+  ports:
+    - port: 8080
+      targetPort: 80   # httpbin listens on :80; expose it on :8080 like the others
