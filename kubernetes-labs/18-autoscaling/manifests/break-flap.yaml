@@ -1,0 +1,31 @@
+# BREAK-IT (B2): an HPA tuned to OSCILLATE. Two deliberate mistakes:
+#   1. target averageUtilization: 10  -> trips on the smallest blip of load
+#   2. NO behavior block              -> default scaleDown stabilization is
+#      short, so the loop reacts to lagging metrics and overshoots both ways.
+# Apply this INSTEAD OF hpa.yaml against the SAME podinfo Deployment, pulse the
+# load on and off, and watch REPLICAS sawtooth up and down (flapping). Fix =
+# raise the target to a sane 50% AND add behavior.scaleDown.stabilizationWindow
+# (i.e. go back to hpa.yaml).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: podinfo                     # same name/target as hpa.yaml: replaces it on apply
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 10    # WAY too low: any traffic blows past it
+  # NO behavior: block on purpose -> nothing damps the reaction to metric lag.

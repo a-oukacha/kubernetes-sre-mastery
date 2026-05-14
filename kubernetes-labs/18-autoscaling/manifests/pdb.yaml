@@ -1,0 +1,18 @@
+# PodDisruptionBudget. During node scale-DOWN the autoscaler DRAINS (evicts)
+# pods off the doomed node. This PDB tells the eviction API "keep at least 1
+# podinfo pod available at all times", so a drain can never take the service to
+# zero. minAvailable is a floor the voluntary-disruption path must respect;
+# it does NOT block involuntary events (node crash). Pairs with HPA minReplicas.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: podinfo
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: podinfo

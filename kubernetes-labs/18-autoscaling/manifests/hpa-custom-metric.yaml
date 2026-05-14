@@ -1,0 +1,32 @@
+# OPTIONAL / REFERENCE — HPA on a CUSTOM (application) metric instead of CPU.
+# Requires Prometheus + prometheus-adapter (registers the custom.metrics.k8s.io
+# API and maps a PromQL query to a per-pod metric). podinfo exposes
+# http_requests_total on /metrics; the adapter turns it into a per-pod rate the
+# HPA can target. This is the bridge to the AI/ML pattern in the lecture:
+# autoscale on "requests in flight" or "queue depth", NOT on CPU.
+#
+# Do NOT apply this without the adapter installed — the HPA will sit at
+# <unknown> because the custom.metrics.k8s.io API has no data to serve.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: podinfo-rps
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Pods                    # a custom metric reported per-pod by the adapter
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "50"        # aim for ~50 rps per pod; more rps => more pods

@@ -1,0 +1,71 @@
+# The HPA target. podinfo is CPU-burnable: POST /token does HMAC/JWT signing
+# per request, so a high request rate drives real CPU work — that is what the
+# HPA will track. requests.cpu is MANDATORY: HPA utilization % is computed
+# RELATIVE TO THE REQUEST (200m here). No request => no % => HPA shows
+# <unknown> and never scales (see Break-it B1).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  replicas: 1                       # HPA OWNS the replica count from here on; do not fight it
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: podinfo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: podinfo
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "18"
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.0
+          ports:
+            - name: http
+              containerPort: 9898
+          command:
+            - ./podinfo
+            - --port=9898
+            - --level=warn
+          resources:
+            requests:
+              cpu: 200m             # the BASELINE the HPA percentage is relative to
+              memory: 32Mi
+            limits:
+              cpu: 500m             # headroom so a single pod can spike above its request
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9898
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9898
+            initialDelaySeconds: 1
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  type: ClusterIP                   # in-cluster only — NO cloud LoadBalancer in this lab
+  selector:
+    app.kubernetes.io/name: podinfo
+  ports:
+    - name: http
+      port: 9898
+      targetPort: 9898

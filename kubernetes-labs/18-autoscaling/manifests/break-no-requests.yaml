@@ -1,0 +1,55 @@
+# BREAK-IT (B1): a Deployment with NO cpu request, plus an HPA targeting it.
+# The HPA cannot compute "current CPU as a % of request" because there is no
+# request to divide by. `kubectl get hpa` shows TARGETS = <unknown>/50% and the
+# fleet never scales, no matter how hard you load it. This proves requests are
+# MANDATORY for a Utilization-based HPA. Fix = add resources.requests.cpu.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: norequests
+  labels:
+    app.kubernetes.io/name: norequests
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: norequests
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: norequests
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "18"
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.7.0
+          ports:
+            - containerPort: 9898
+          command: ["./podinfo", "--port=9898", "--level=warn"]
+          # NOTE: deliberately NO resources.requests block.
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: norequests
+  labels:
+    app.kubernetes.io/name: norequests
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: norequests
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50

@@ -1,0 +1,44 @@
+# HPA v2 (autoscaling/v2). Targets 50% AVERAGE CPU utilization across pods,
+# measured RELATIVE TO the Deployment's per-pod cpu request (200m). At 50% the
+# loop aims for ~100m average use per pod; sustained load above that adds pods.
+#
+# behavior: scaleUp is fast (react to a surge in <=30s), scaleDown is damped by
+# a 120s stabilization window so transient dips don't churn the fleet. Removing
+# this block (see Break-it B2 / flap.yaml) lets metric lag drive oscillation.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: podinfo
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: podinfo
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0      # react immediately to a surge
+      policies:
+        - type: Pods
+          value: 4                       # add up to 4 pods...
+          periodSeconds: 15              # ...every 15s
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 120    # wait 2 min of low load before shrinking (damps flapping)
+      policies:
+        - type: Pods
+          value: 1                       # remove at most 1 pod per minute
+          periodSeconds: 60
+      selectPolicy: Max

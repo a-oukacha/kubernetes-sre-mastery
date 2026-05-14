@@ -1,0 +1,42 @@
+# NODE SCALE-OUT trigger. This Deployment asks for a big cpu request per pod
+# and 8 replicas. Their combined requests exceed what the current nodes can
+# schedule, so some pods land in STATE Pending with event "Insufficient cpu".
+# Pending pods are the SIGNAL the Cluster Autoscaler / OVH node-pool autoscaler
+# watches for: it provisions a new node, the Pending pods schedule, and (after
+# the load is gone) the now-underused node is reclaimed.
+#
+# TUNE the request to YOUR node size so it actually overflows: set it to a bit
+# more than (node allocatable cpu) / (replicas that already fit). On a 2-vCPU
+# node, 1 cpu x 8 replicas reliably overflows a small pool.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ballast
+  labels:
+    app.kubernetes.io/name: ballast
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "18"
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ballast
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ballast
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "18"
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: pause
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          args: ["pause"]           # idle — we only care about its RESERVATION
+          resources:
+            requests:
+              cpu: "1"              # big enough that 8 of these overflow a small pool
+              memory: 32Mi
+            limits:
+              cpu: "1"
+              memory: 64Mi
