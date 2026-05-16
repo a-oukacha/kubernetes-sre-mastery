@@ -1,0 +1,53 @@
+# A pod that runs as the pod-reader ServiceAccount and uses ITS token to call
+# the API server from inside the cluster. The image is bitnami/kubectl, so the
+# pod simply runs kubectl against the in-cluster endpoint with the projected
+# SA token (kubectl auto-discovers it; no kubeconfig needed).
+#
+# The container loops forever, every 20s:
+#   - "kubectl get pods" (granted: get/list on pods)  -> succeeds
+#   - "kubectl delete pod ... " (NOT granted)         -> "forbidden" RBAC error
+# You read both outcomes in `kubectl logs`. RBAC is what decides each line.
+#
+# The securityContext is already hardened so this pod is admissible under the
+# "restricted" Pod Security Standard you enforce in step 6.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kubectl-client
+  namespace: lab-19-rbac-podsecurity
+  labels:
+    app.kubernetes.io/name: kubectl-client
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+spec:
+  serviceAccountName: pod-reader      # <-- run AS this identity, not "default"
+  # We DO need the token here (the pod calls the API), so we leave automount on.
+  # Pods that never call the API should set automountServiceAccountToken: false.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: kubectl
+      image: bitnami/kubectl:1.30
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          NS=lab-19-rbac-podsecurity
+          while true; do
+            echo "=== $(date -u +%T) get pods (should be ALLOWED) ==="
+            kubectl get pods -n "$NS" --no-headers 2>&1 | head -20
+            echo "=== $(date -u +%T) delete pod kubectl-client (should be FORBIDDEN) ==="
+            kubectl delete pod kubectl-client -n "$NS" 2>&1 | head -3
+            sleep 20
+          done
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]

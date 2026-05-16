@@ -1,0 +1,33 @@
+# A deliberately-insecure pod: runs as root, requests a privileged container,
+# keeps all capabilities, writable root FS. Under the DEFAULT (no PSA label)
+# namespace this would be ADMITTED and run. Once you label the namespace
+#   pod-security.kubernetes.io/enforce: restricted
+# the Pod Security Admission controller REJECTS this at admission time with a
+# clear message: 'violates PodSecurity "restricted:latest"' listing each field
+# that fails (allowPrivilegeEscalation, capabilities, runAsNonRoot,
+# seccompProfile, privileged, ...). Nothing is ever scheduled — the API server
+# refuses to store it.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rootbox
+  namespace: lab-19-rbac-podsecurity
+  labels:
+    app.kubernetes.io/name: rootbox
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+spec:
+  containers:
+    - name: root
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 3600"]
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "16Mi"
+      securityContext:
+        privileged: true                  # full host access — the worst case
+        runAsUser: 0                       # root
+        allowPrivilegeEscalation: true
+        # no dropped capabilities, no seccomp, writable root FS: every one of
+        # these is a "restricted" violation on its own.

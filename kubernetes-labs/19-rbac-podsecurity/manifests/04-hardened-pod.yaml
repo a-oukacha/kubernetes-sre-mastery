@@ -1,0 +1,54 @@
+# A pod that satisfies the full "restricted" Pod Security Standard. Every field
+# here is one of the restricted requirements:
+#   - runAsNonRoot: true            -> kernel refuses to start as UID 0
+#   - runAsUser: 65532              -> an explicit non-root UID
+#   - seccompProfile RuntimeDefault -> syscall filter applied
+#   - allowPrivilegeEscalation:false-> no setuid/setgid gain of privilege
+#   - capabilities.drop ["ALL"]     -> start with zero Linux capabilities
+#   - readOnlyRootFilesystem: true  -> the image's root FS is immutable;
+#                                      anything writable must be an explicit
+#                                      mounted volume (here, an emptyDir on /tmp)
+#
+# This is the shape you want EVERY application pod to have. The app must be
+# DESIGNED to need none of root/caps/writable-root — that is a Dev concern, not
+# something you can bolt on at admission time.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hardened
+  namespace: lab-19-rbac-podsecurity
+  labels:
+    app.kubernetes.io/name: hardened
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+spec:
+  # This pod never talks to the API, so don't hand it a token at all.
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: agnhost
+      image: registry.k8s.io/e2e-test-images/agnhost:2.47
+      args: ["netexec", "--http-port=8080"]
+      ports:
+        - containerPort: 8080
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp        # writable scratch, since root FS is read-only
+  volumes:
+    - name: tmp
+      emptyDir: {}

@@ -1,0 +1,26 @@
+# BREAK IT (do NOT keep this). This ClusterRoleBinding attaches the built-in
+# cluster-admin ClusterRole to the pod-reader ServiceAccount. cluster-admin is
+# the "*/*/*" wildcard: every verb, every resource, EVERY namespace, cluster
+# scope included. The moment this applies, the kubectl-client pod (running as
+# pod-reader) can do ANYTHING in the cluster — delete pods in kube-system, read
+# every Secret, edit RBAC. That is the over-privilege blast radius.
+#
+# IMPORTANT: a ClusterRoleBinding is CLUSTER-SCOPED. Deleting the lab namespace
+# does NOT remove it. Cleanup deletes it explicitly. Leaving stray
+# cluster-admin bindings around is exactly how clusters get compromised.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lab19-pod-reader-cluster-admin    # cluster-scoped name; no namespace
+  labels:
+    app.kubernetes.io/name: pod-reader
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: pod-reader
+    namespace: lab-19-rbac-podsecurity

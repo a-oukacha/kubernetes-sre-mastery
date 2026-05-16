@@ -1,0 +1,54 @@
+# Least-privilege identity for an in-cluster client.
+#
+# A ServiceAccount is an identity the API server recognizes. A pod that runs as
+# this SA authenticates to the API with a projected SA token (auto-mounted at
+# /var/run/secrets/kubernetes.io/serviceaccount). RBAC is DENY-by-default and
+# additive: this SA can do NOTHING until a Role grants verbs and a RoleBinding
+# attaches that Role to the subject.
+#
+# The Role below grants ONLY get/list on pods, in THIS namespace. No delete,
+# no other resources, no cluster scope. That is the whole point of least
+# privilege: a compromised pod inherits exactly these rights and nothing more.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-reader
+  namespace: lab-19-rbac-podsecurity
+  labels:
+    app.kubernetes.io/name: pod-reader
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-reader
+  namespace: lab-19-rbac-podsecurity
+  labels:
+    app.kubernetes.io/name: pod-reader
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+rules:
+  # Read-only on pods. Note: NO "delete" verb here on purpose. Step 3 proves
+  # the delete is refused; step 5 adds the verb to show the additive model.
+  - apiGroups: [""]            # "" is the core API group (pods live here)
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-reader
+  namespace: lab-19-rbac-podsecurity
+  labels:
+    app.kubernetes.io/name: pod-reader
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role             # namespaced Role (not ClusterRole)
+  name: pod-reader
+subjects:
+  - kind: ServiceAccount
+    name: pod-reader
+    namespace: lab-19-rbac-podsecurity

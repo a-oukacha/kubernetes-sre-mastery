@@ -1,0 +1,19 @@
+# Step 5: widen the Role by adding the "delete" verb. Apply this OVER the Role
+# in 01-reader-rbac.yaml (same name/namespace) to grant the extra right.
+# RBAC is additive, so `kubectl auth can-i delete pods` flips no -> yes the
+# instant this applies, and the kubectl-client pod's delete attempt stops being
+# forbidden. This is the lab's demonstration that you grant capability by
+# adding the minimum verb, never by reaching for cluster-admin.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-reader
+  namespace: lab-19-rbac-podsecurity
+  labels:
+    app.kubernetes.io/name: pod-reader
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]    # <-- "delete" added

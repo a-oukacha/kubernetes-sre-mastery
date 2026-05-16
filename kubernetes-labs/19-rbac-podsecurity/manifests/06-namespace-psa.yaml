@@ -1,0 +1,24 @@
+# Pod Security Admission is configured by NAMESPACE LABELS, not by a CRD.
+# Three modes, each can pin to a level (privileged | baseline | restricted):
+#   enforce  -> reject violating pods at admission (hard gate)
+#   audit    -> allow, but record a violation in the audit log
+#   warn     -> allow, but return a kubectl warning to the user
+#
+# Setup applied this namespace WITHOUT the enforce label (so the insecure pod
+# can be admitted first, to prove the contrast). Step 6 applies THIS file to
+# turn on enforcement. After this, "restricted" is the bar: rootbox is rejected,
+# the hardened pod is admitted.
+#
+# warn+audit are also set so that even where you can't yet enforce, you get
+# visibility. Never ship a namespace with ONLY warn — a warning blocks nobody.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-19-rbac-podsecurity
+  labels:
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "19"
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
