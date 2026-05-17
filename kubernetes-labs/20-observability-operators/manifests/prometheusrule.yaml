@@ -1,0 +1,106 @@
+# A PrometheusRule is a Custom Resource (Prometheus Operator) that becomes
+# Prometheus recording/alerting rules. Same Operator pattern as ServiceMonitor.
+#
+# THE SLO we encode:
+#   "99% of podinfo requests succeed" (availability SLO).
+#   SLI  = good events / total events = non-5xx requests / all requests.
+#   SLO  = 99%   =>  error budget = 1 - 0.99 = 1% of requests may fail.
+#
+# THE ALERT is a MULTI-WINDOW, MULTI-BURN-RATE alert (Google SRE workbook
+# style), NOT a static threshold. We alert on how fast we are BURNING the
+# error budget:
+#   - FAST burn  (14.4x budget over a short window) -> page.  At 14.4x you
+#     exhaust a 30-day budget in ~2 days; this is an emergency.
+#   - SLOW burn  (3x budget over a long window)     -> ticket. A persistent
+#     low-grade error rate that will eventually breach -- handle in hours.
+# The short+long window pairing (the `and` below) suppresses flapping: a brief
+# spike that already recovered will not page because the long window stays calm.
+#
+# The error-ratio expression uses podinfo's built-in metric
+# `http_requests_total{status=~"5.."}` over `http_requests_total`.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: podinfo-slo
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: podinfo-slo.rules
+      rules:
+        # --- Recording rules: the error RATIO at several windows ------------
+        - record: job:podinfo_error_ratio:ratio5m
+          expr: |
+            sum(rate(http_requests_total{namespace="lab-20-observability-operators",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{namespace="lab-20-observability-operators"}[5m]))
+        - record: job:podinfo_error_ratio:ratio1h
+          expr: |
+            sum(rate(http_requests_total{namespace="lab-20-observability-operators",status=~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total{namespace="lab-20-observability-operators"}[1h]))
+        - record: job:podinfo_error_ratio:ratio30m
+          expr: |
+            sum(rate(http_requests_total{namespace="lab-20-observability-operators",status=~"5.."}[30m]))
+            /
+            sum(rate(http_requests_total{namespace="lab-20-observability-operators"}[30m]))
+        - record: job:podinfo_error_ratio:ratio6h
+          expr: |
+            sum(rate(http_requests_total{namespace="lab-20-observability-operators",status=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{namespace="lab-20-observability-operators"}[6h]))
+
+        # --- Alerts: burn-rate over the 1% budget --------------------------
+        # FAST burn: 14.4x over 1h, confirmed by 5m. Pages.
+        - alert: PodinfoErrorBudgetBurnFast
+          expr: |
+            job:podinfo_error_ratio:ratio1h > (14.4 * 0.01)
+            and
+            job:podinfo_error_ratio:ratio5m > (14.4 * 0.01)
+          for: 2m
+          labels:
+            severity: page
+            slo: podinfo-availability
+          annotations:
+            summary: "podinfo is burning the error budget FAST (page)"
+            description: >
+              Error ratio is above 14.4x the 1% budget over both 1h and 5m
+              windows. At this rate a 30-day budget is gone in ~2 days. This is
+              a SYMPTOM-based page: users are seeing errors right now.
+        # SLOW burn: 3x over 6h, confirmed by 30m. Tickets.
+        - alert: PodinfoErrorBudgetBurnSlow
+          expr: |
+            job:podinfo_error_ratio:ratio6h > (3 * 0.01)
+            and
+            job:podinfo_error_ratio:ratio30m > (3 * 0.01)
+          for: 15m
+          labels:
+            severity: ticket
+            slo: podinfo-availability
+          annotations:
+            summary: "podinfo is burning the error budget slowly (ticket)"
+            description: >
+              A persistent low-grade error rate (>3x budget) over 6h. Not an
+              emergency, but it will breach the SLO if left alone. Open a ticket.
+
+        # --- The CAUSE alert (deliberately inferior; for the Break-it lesson)-
+        # This fires on a RESOURCE cause (CPU), not on user-visible impact. It
+        # pages even when users are perfectly happy, and stays silent during a
+        # logic-error outage that burns no CPU. Symptom-based SLO alerts above
+        # are strictly better; this one exists to be compared against.
+        - alert: PodinfoHighCPU
+          expr: |
+            sum(rate(container_cpu_usage_seconds_total{namespace="lab-20-observability-operators",container="podinfo"}[5m])) > 0.15
+          for: 2m
+          labels:
+            severity: page
+            kind: cause-based
+          annotations:
+            summary: "podinfo CPU is high (CAUSE-based -- inferior alert)"
+            description: >
+              Pages on a cause (CPU), not a symptom. High CPU may be a healthy
+              busy service; meanwhile a 100% error outage that uses no CPU would
+              NOT fire this. Prefer the SLO burn-rate alerts.

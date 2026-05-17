@@ -1,0 +1,16 @@
+# A sample Website custom resource. To a user this is the WHOLE interface:
+# "I want a website running this image with 2 replicas." They never write a
+# Deployment or a Service. The controller's reconcile loop sees this object and
+# materializes a Deployment "hello-site" + Service "hello-site" to match.
+# Edit .spec.replicas and the controller scales the child Deployment; delete
+# this CR and the controller garbage-collects both children.
+apiVersion: example.com/v1
+kind: Website
+metadata:
+  name: hello-site
+  labels:
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+spec:
+  image: ghcr.io/stefanprodan/podinfo:6.7.0
+  replicas: 2

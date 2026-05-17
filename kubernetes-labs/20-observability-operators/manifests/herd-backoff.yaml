@@ -1,0 +1,84 @@
+# THUNDERING HERD demo, part 2 -- the FIX.
+# Same 12 clients, same failing endpoint, but now each retry uses EXPONENTIAL
+# BACKOFF (1s, 2s, 4s, 8s ... capped) PLUS full JITTER (a random fraction of
+# the delay). Two things happen:
+#   1. Exponential backoff makes the retry interval GROW, so aggregate load
+#      DECAYS instead of staying pinned at full amplitude -- the recovering
+#      service gets breathing room.
+#   2. Jitter DESYNCHRONIZES the clients: they no longer all retry at the same
+#      instant, so the load smooths out instead of arriving in damaging waves.
+# Together they convert a self-reinforcing herd into a gentle, decaying probe.
+#
+# A real client library (gRPC, AWS SDK, Polly, resilience4j) does exactly this
+# for you, and adds a CIRCUIT BREAKER: after N consecutive failures it stops
+# calling entirely for a cooldown ("open"), periodically letting one trial
+# request through ("half-open") to test recovery. We emulate a tiny breaker
+# below: after 5 straight failures, sleep a long cooldown before probing again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: herd-backoff
+  labels:
+    app.kubernetes.io/name: herd-backoff
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+spec:
+  parallelism: 12
+  completions: 12
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: herd-backoff
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "20"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: client
+          image: fortio/fortio:1.60.3
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "polite client: exponential backoff + full jitter + breaker"
+              attempt=0
+              fails=0
+              base=1
+              cap=16
+              breaker_open_after=5      # consecutive fails -> open the breaker
+              cooldown=20               # seconds the breaker stays open
+              while [ $attempt -lt 20 ]; do
+                # Circuit breaker: if too many consecutive failures, stop calling.
+                if [ $fails -ge $breaker_open_after ]; then
+                  echo "breaker OPEN: cooling down ${cooldown}s before a trial call"
+                  sleep $cooldown
+                  fails=0               # half-open: allow one trial next loop
+                fi
+                if fortio curl -quiet http://podinfo:9898/status/503 >/dev/null 2>&1; then
+                  fails=0
+                else
+                  fails=$((fails+1))
+                fi
+                # Exponential backoff: delay = min(cap, base * 2^attempt)
+                delay=$base
+                n=$attempt
+                while [ $n -gt 0 ] && [ $delay -lt $cap ]; do
+                  delay=$((delay*2)); n=$((n-1))
+                done
+                [ $delay -gt $cap ] && delay=$cap
+                # Full jitter: sleep a RANDOM amount in [0, delay].
+                jitter=$(( (RANDOM % (delay*1000)) / 1000 ))
+                echo "attempt=$attempt backoff=${delay}s jittered=${jitter}s fails=$fails"
+                sleep $jitter
+                attempt=$((attempt+1))
+              done
+              echo "polite client done"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 24Mi
+            limits:
+              cpu: 100m
+              memory: 48Mi

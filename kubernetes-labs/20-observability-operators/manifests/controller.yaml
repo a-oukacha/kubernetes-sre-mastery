@@ -1,0 +1,171 @@
+# The Website controller -- a REAL reconcile loop in ~60 lines of bash, so you
+# can read every move. This is the same shape as kube-controller-manager: it
+# does NOT run user commands once; it CONTINUOUSLY closes the gap between
+# DESIRED state (Website CRs) and ACTUAL state (the Deployments/Services that
+# exist). The three-step loop -- OBSERVE actual, DIFF against desired, ACT to
+# converge -- is how ALL of Kubernetes works. An Operator is just YOUR loop
+# over YOUR CRD.
+#
+# What it does each pass:
+#   1. List all Website CRs in this namespace (desired).
+#   2. For each Website "foo": ensure a Deployment "foo" and Service "foo"
+#      exist with the CR's image+replicas (create or update). Stamp them
+#      created-by=website-controller and managed-by/<cr-name> for selection
+#      and ownership. Patch the Website's status.phase=Ready.
+#   3. GARBAGE COLLECT: any Deployment/Service we created whose Website CR no
+#      longer exists gets deleted. This is what makes `kubectl delete website`
+#      tear down its children -- the loop notices the desired object is gone
+#      and removes the now-orphaned actuals.
+#
+# It is intentionally minimal (level-triggered polling, no informers, no owner
+# references / finalizers). The lecture lists exactly what a production operator
+# (kubebuilder/Operator SDK) adds. But it is REAL: it materializes child objects.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: website-controller-script
+  labels:
+    app.kubernetes.io/name: website-controller
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+data:
+  reconcile.sh: |
+    #!/bin/bash
+    set -uo pipefail
+    NS="${POD_NAMESPACE}"
+    MARK="created-by=website-controller"     # label we stamp on every child
+    echo "[controller] starting reconcile loop in namespace=$NS"
+
+    render_deploy() {                         # $1=name $2=image $3=replicas
+      cat <<YAML
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: ${1}
+      labels:
+        created-by: website-controller
+        website: ${1}
+        course.lab: "20"
+    spec:
+      replicas: ${3}
+      selector:
+        matchLabels:
+          website: ${1}
+      template:
+        metadata:
+          labels:
+            website: ${1}
+            created-by: website-controller
+            course.lab: "20"
+        spec:
+          containers:
+            - name: web
+              image: ${2}
+              ports:
+                - containerPort: 9898
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+    YAML
+    }
+
+    render_svc() {                            # $1=name
+      cat <<YAML
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: ${1}
+      labels:
+        created-by: website-controller
+        website: ${1}
+        course.lab: "20"
+    spec:
+      selector:
+        website: ${1}
+      ports:
+        - port: 80
+          targetPort: 9898
+    YAML
+    }
+
+    while true; do
+      # ---- DESIRED: every Website CR in this namespace --------------------
+      DESIRED=$(kubectl get websites -n "$NS" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+
+      for w in $DESIRED; do
+        IMG=$(kubectl get website "$w" -n "$NS" -o jsonpath='{.spec.image}')
+        REP=$(kubectl get website "$w" -n "$NS" -o jsonpath='{.spec.replicas}')
+        [ -z "$REP" ] && REP=1
+        # ACT: create-or-update the child Deployment + Service to match spec.
+        render_deploy "$w" "$IMG" "$REP" | kubectl apply -n "$NS" -f - >/dev/null
+        render_svc    "$w"               | kubectl apply -n "$NS" -f - >/dev/null
+        kubectl patch website "$w" -n "$NS" --type=merge --subresource=status \
+          -p '{"status":{"phase":"Ready"}}' >/dev/null 2>&1 || true
+        echo "[controller] reconciled website/$w -> deploy+svc (image=$IMG replicas=$REP)"
+      done
+
+      # ---- GARBAGE COLLECT: actuals whose desired CR is gone --------------
+      OURS=$(kubectl get deploy,svc -n "$NS" -l "$MARK" \
+               -o jsonpath='{range .items[*]}{.metadata.labels.website}{"\n"}{end}' \
+               2>/dev/null | sort -u)
+      for name in $OURS; do
+        [ -z "$name" ] && continue
+        if ! echo "$DESIRED" | grep -qx "$name"; then
+          echo "[controller] website/$name is gone -> deleting its deploy+svc"
+          kubectl delete deploy,svc -n "$NS" -l "website=$name,$MARK" >/dev/null 2>&1 || true
+        fi
+      done
+
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: website-controller
+  labels:
+    app.kubernetes.io/name: website-controller
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+spec:
+  replicas: 1                  # a controller is a Singleton (lab 11) -- one
+  selector:                    # reconcile authority. Production uses a Lease.
+    matchLabels:
+      app.kubernetes.io/name: website-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: website-controller
+        app.kubernetes.io/part-of: k8s-sre-course
+        course.lab: "20"
+    spec:
+      serviceAccountName: website-controller
+      containers:
+        - name: controller
+          image: bitnami/kubectl:1.30
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/scripts/reconcile.sh"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: script
+          configMap:
+            name: website-controller-script
+            defaultMode: 0755

@@ -1,0 +1,33 @@
+# A ServiceMonitor is a Custom Resource the Prometheus Operator watches. The
+# Operator turns it into actual scrape config and reloads Prometheus -- you
+# never edit prometheus.yml by hand. This is itself an Operator pattern: a CRD
+# (ServiceMonitor) + a controller (the Operator) that reconciles it into a
+# concrete artifact (scrape config). The Website controller you build later in
+# this lab is the same idea, scaled down.
+#
+# REQUIRES: kube-prometheus-stack (cluster-setup eks.md 2.8 / ovh.md 2.7).
+# If the CRDs are absent, `kubectl apply` fails with
+#   "no matches for kind ServiceMonitor" -- expected; the lab tells you to skip.
+#
+# The `release: kube-prometheus-stack` label is how the Operator's default
+# serviceMonitorSelector finds this object. Match your install's release name.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: podinfo
+  labels:
+    app.kubernetes.io/name: podinfo
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - lab-20-observability-operators
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: podinfo
+  endpoints:
+    - port: http          # the named Service port from podinfo.yaml
+      path: /metrics
+      interval: 15s

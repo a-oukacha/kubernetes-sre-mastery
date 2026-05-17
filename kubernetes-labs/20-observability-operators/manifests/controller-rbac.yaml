@@ -1,0 +1,60 @@
+# RBAC for the Website controller. The reconcile loop must:
+#   - WATCH/LIST/GET Website CRs (its desired state),
+#   - CREATE/UPDATE/DELETE the Deployments and Services it materializes,
+#   - PATCH Website/status to report what it did.
+# We grant exactly that and no more (least privilege -- lab 19).
+#
+# Scope choice: a Role + RoleBinding in the lab namespace is enough because the
+# controller only manages objects in its own namespace. A production operator
+# that watches ALL namespaces would use a ClusterRole + ClusterRoleBinding
+# instead -- the lecture explains the trade-off. The Cleanup step deletes this
+# RBAC with the namespace; if you switch to a ClusterRole/ClusterRoleBinding,
+# you MUST delete those explicitly (they are cluster-scoped).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: website-controller
+  labels:
+    app.kubernetes.io/name: website-controller
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: website-controller
+  labels:
+    app.kubernetes.io/name: website-controller
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+rules:
+  # The desired state the controller reconciles.
+  - apiGroups: ["example.com"]
+    resources: ["websites"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["example.com"]
+    resources: ["websites/status"]
+    verbs: ["get", "update", "patch"]
+  # The child objects the controller owns and drives toward desired state.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: website-controller
+  labels:
+    app.kubernetes.io/name: website-controller
+    app.kubernetes.io/part-of: k8s-sre-course
+    course.lab: "20"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: website-controller
+subjects:
+  - kind: ServiceAccount
+    name: website-controller
