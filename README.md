@@ -6,6 +6,7 @@ NetworkPolicy, scheduling, batch, autoscaling, RBAC and pod security, and an obs
 operators capstone. Every lab runs on a real managed cluster, CPU-only, with the cloud-specific bits
 given for both EKS and OVH.
 
+[![CI](https://github.com/Open-The-Gates/kubernetes-sre-mastery/actions/workflows/ci.yml/badge.svg)](https://github.com/Open-The-Gates/kubernetes-sre-mastery/actions/workflows/ci.yml)
 
 > I built this to stop half-knowing Kubernetes. Each lab is something you actually apply to a cluster
 > and watch happen, then a write-up that explains the mechanism and the failure modes. Distilled from
